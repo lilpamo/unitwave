@@ -6,6 +6,45 @@ first.
 
 ---
 
+### 2026-10-01 — S2 prior-art audit: post-sorting analysis apps (`docs/PRIOR_ART.md` §F)
+
+**What (the user's step S2):**
+- **Scope:** 11 entries covering CellExplorer, NeuroExplorer, IBL's websites,
+  Neurosift, Phy, the SpikeInterface GUI, sortingview, Pynapple and pynaviz,
+  Elephant, brainrender and Urchin, NeuroPyGuiN and NeuroPyxels.
+- **Each entry:** what the tool does, formats, statistics, atlas and 3D,
+  reproducibility, licence and status.
+- **Then:** a comparison matrix and a novelty assessment for UnitWave Studio.
+
+**How:**
+- **Sources:** current repositories, docs and source files, and PyPI and GitHub
+  metadata, read on 2026-10-01. Claims read there are [V]; the rest are [A].
+- **Nothing was installed or run.**
+- **The existing text is unchanged:** it is a historical doc, so §F is appended,
+  with its own matrix. The matrix above it belongs to the parked decoding
+  project.
+
+**What it changes for us:**
+1. **The claim to make:** every label in Studio is a corrected test against a
+   stated null, with trial counts shown. None of the GUIs checked does that:
+   - CellExplorer corrects across lag bins, not pairs;
+   - NeuroExplorer's PSTH limits are per bin;
+   - NeuroPyxels and NeuroPyGuiN test at p < 0.01 per pair.
+   This is a tools contribution, not a discovery.
+2. **Not to claim:** rasters, PSTHs, tuning, correlograms, connection detection,
+   3D atlas views, or a browser UI. Each exists elsewhere.
+3. **Watch NeuroPyGuiN:** started 2026-02-26 and active. It covers raw data to
+   histology in one desktop app, and has no licence file yet. Re-check §F's
+   matrix before any write-up.
+4. **Urchin is archived:** Studio's 3D view uses three.js, so nothing depends on
+   it.
+5. **For step 8's open question (close pairs):** CellExplorer removes the CCG's
+   centre bin for same-shank pairs before building its predictor. A third
+   option, beside flagging (current) and excluding close pairs. Your call; not
+   changed here.
+
+**No code change, no dependency.**
+
 ### 2026-10-01 — S1 robustness pass: eight sessions, three fixes (`analysis/correlograms.py`, `data/atlas_meshes.py`, `viz/studio_plots.py`, page scripts)
 
 **What was run (the user's step S1):**

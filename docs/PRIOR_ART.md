@@ -422,3 +422,287 @@ show that existing large-scale decoders are miscalibrated on held-out animals,
 and that a session-level distribution-shift score recovers reliability." That is
 a real, modest, publishable result. Anything grander needs evidence you do not
 have yet.
+
+---
+
+## F. Post-sorting analysis apps (S2, 2026-10-01)
+
+Prior art for UnitWave Studio, the current direction (see "Direction change" in
+`docs/DECISIONS.md`). The comparison matrix and novelty assessment above belong to
+the parked decoding project; this section has its own.
+
+**How it was checked (2026-10-01):** each tool's current repository, docs or
+source code, plus PyPI and GitHub metadata for versions, licences and activity.
+- **[V]** means read in one of those sources on that date: the file or page is
+  named where it matters.
+- **[A]** means assumed, from general knowledge or an older source, and not
+  checked.
+- Nothing here was installed or run, unlike sections A–C.
+
+### F1. CellExplorer (petersenpeter/CellExplorer; Petersen et al., Neuron 2021)
+
+- **What [V]:** a MATLAB GUI and processing pipeline (`ProcessCellMetrics.m`) for
+  single-cell characterisation. It covers cell metrics, cell-type
+  classification, autocorrelogram fits, putative monosynaptic connections and
+  behavioural spiking dynamics.
+- **Formats [V]:** Kilosort, Phy and Neurosuite through `loadSpikes.m`, and also
+  KiloSort2, SpyKING CIRCUS, KlustaKwik, MountainSort, IronClust, MClust and
+  UltraMegaSort2000. There is an NWB tutorial.
+- **Statistics [V], from `calc_CellMetrics/ce_MonoSynConvClick.m`:**
+  - **Method:** monosynaptic connections compare the CCG with a predictor, the
+    CCG convolved with a hollowed Gaussian (`ce_cch_conv.m`: 10 ms window,
+    hollowed fraction 0.6; Stark & Abeles 2009), using a Poisson test. English et
+    al. 2017 is cited for the false- and true-positive rates.
+  - **Thresholds:** `alpha = 0.001`, divided by the number of lag bins tested
+    (`nBonf = round(sigWindow/binSize)*2`, window 0.8–4 ms).
+  - **Correction:** Bonferroni across lag bins within a pair. **No correction
+    across the pairs tested.**
+  - **Direction:** a connection also needs its peak at 0.8–4 ms to exceed the
+    Poisson bound of the peak at −3.2–0 ms (causal against anticausal).
+  - **Same-shank pairs:** the CCG's centre bin is removed before the predictor is
+    computed and left blank, "due to limitations of extracting overlapping
+    spikes". This is CellExplorer's answer to the close-pair artefact Studio
+    flags (step 8).
+  - **Curation:** a manual step confirms or rejects each detected connection in
+    the GUI.
+- **Responsiveness or tuning tests [A]:** event PSTHs exist; a null with a
+  correction across units was not found.
+- **Atlas and 3D [A]:** brain-region metadata per cell; no CCF 3D view was
+  found.
+- **Reproducibility [V]:** every data container carries a `processinginfo`
+  struct with the generating function, version, date and parameters. Results
+  are saved to `basename.cell_metrics.cellinfo.mat`.
+- **Licence and status [V]:** BSD-3-Clause, MATLAB, last push 2026-08-25.
+
+### F2. NeuroExplorer (Nex Technologies)
+
+- **What [V]:** a commercial desktop package with "over 45 analysis types". These
+  include perievent rasters and histograms, auto- and cross-correlograms, burst
+  and place-cell analysis, and Python, MATLAB and R scripting. Version 5;
+  Windows. Price on request, or a $180/month subscription.
+- **Formats:** "more than 50 data file types" from acquisition systems (Plexon,
+  Neuralynx, Multi Channel Systems, CED, Alpha Omega and others) [V]. NWB or Kilosort/Phy import [A]: not
+  stated in the pages read.
+- **Statistics [V], from the manual's sections 2.6 and 2.13:**
+  - **PSTH limits:** 99% confidence limits per bin, assuming Poisson spiking
+    (Abeles 1982), with a Gaussian approximation above 30 counts. **No
+    correction across bins or neurons.**
+  - **Shift predictor:** correlates trial n of one neuron with trial n+1 of the
+    other.
+- **Atlas and 3D:** none found [A].
+- **Reproducibility:** analysis templates and scripts [A].
+- **Data stays local [V]:** it is a desktop app.
+
+### F3. IBL public websites (viz.internationalbrainlab.org, atlas.internationalbrainlab.org; bioRxiv 2024.06.07.597950)
+
+- **Data website [V]:**
+  - **Views:** session, insertion (3D probe selector), cluster and trial level.
+    Cluster pages show rasters and histograms by trial event, waveforms on the
+    probe and QC metrics. Trial pages show a raster with the wheel.
+  - **Precomputed:** figures are PNGs made by Python scripts ahead of time and
+    served by Flask.
+  - **Data:** IBL's own recordings only.
+- **Atlas website [V]:** per-neuron, per-voxel and per-area results on slices, the
+  Swanson flatmap and 3D CCF (rendered with Urchin). `iblbrainviewer` (MIT, 1.1.1,
+  2024) uploads a user's own regional values to it.
+- **Statistics [A]:** the Brain Wide Map papers' results use nulls and
+  corrections. The paper's description of the cluster pages names no test or
+  label, only plots and QC metrics.
+- **Hosted [V]:** a server outside the lab, and no local analysis of the user's own
+  spikes.
+- **Code [V]:** open source. `int-brain-lab/ibl-viz` and `paper-viz-website`
+  declare no licence; `int-brain-lab/website` is MIT but is described as a
+  prototype.
+
+### F4. Neurosift (flatironinstitute/neurosift; JOSS 2024, 10.21105/joss.06590)
+
+- **What [V]:** browser-based viewing of NWB files and the DANDI, EMBER and
+  OpenNeuro archives.
+- **Unit views [V], from `src/pages/NwbPage/plugins/`:** PSTH (raster plus
+  histogram), raster and the units table. Other plugins cover time series,
+  events, trial-aligned series, pose, video, LFP spectrograms and a Python
+  script plugin.
+- **Statistics [V]:** none; the views are descriptive.
+- **Atlas [V]:** NIfTI viewing (niivue); no CCF probe or unit view.
+- **Where it runs [V]:** hosted at neurosift.app. `neurosift view-nwb file.nwb`
+  opens a local file.
+- **Licence and status [V]:** Apache-2.0, TypeScript and Python, 0.2.16
+  (2026-09-04), last push 2026-09-29.
+
+### F5. Phy (cortex-lab/phy)
+
+- **What [V]:** a curation GUI for template-based sorters (Kilosort, SpyKING
+  CIRCUS, klusta) on high-density probes, with a raw-data viewer.
+- **Views [A]:** waveforms, features, amplitudes, correlograms, traces, raster.
+- **Statistics [V]:** none; it curates and makes no claims.
+- **Atlas and 3D:** none [V].
+- **Licence and status [V]:** BSD-3-Clause, Python, 2.1.0 (2026-07-17), a
+  maintenance release that moved to Qt-native views.
+
+### F6. SpikeInterface GUI (SpikeInterface/spikeinterface-gui)
+
+- **What [V]:** a viewer and curation tool for a SpikeInterface `SortingAnalyzer`,
+  in Qt or in the browser (Panel/Bokeh).
+- **Views [V]:** unit and spike lists, waveforms and heatmaps, correlograms, PCA,
+  amplitudes, quality metrics, template similarity, and a probe map with region
+  selection.
+- **Output [V]:** curation (removals, merges, splits, labels) exported as
+  SpikeInterface curation JSON.
+- **No task alignment [V]:** no PSTHs, no task events and no statistics.
+- **Licence and status [V]:** MIT, Python, 0.13.1 (2026-04-01), last push
+  2026-09-29.
+
+### F7. sortingview (magland/sortingview)
+
+- **What [V]:** shareable web views of sorting results (figurl). Sharing needs a
+  kachery cloud account and API key.
+- **Views [V], from `sortingview/views/`:** units table, auto- and
+  cross-correlograms, average waveforms, raster, spike amplitudes, unit locations,
+  metrics graphs, similarity matrix, curation.
+- **Statistics [V]:** none.
+- **Where data goes [V]:** to the cloud when shared.
+- **Licence and status [V]:** Apache-2.0, 0.14.2 (2025-09-04), last push
+  2025-09-04.
+
+### F8. Pynapple and pynaviz (pynapple-org)
+
+- **Pynapple [V]:** a Python library for timestamps and intervals. It has
+  perievent alignment, n-dimensional tuning curves, correlograms, decoding and
+  NWB loading.
+  - **Surrogates, from `process/randomize.py`:** `shift_timestamps`,
+    `shuffle_ts_intervals`, `jitter_timestamps`, `resample_timestamps`.
+  - **No tests:** no significance test or multiple-testing correction in the
+    API; the user writes them.
+  - **Licence:** MIT, 0.11.4 (2026-08-20).
+- **pynaviz [V]:** a synchronised viewer for pynapple objects (Qt, or PyGFX
+  without it). It shows rasters, time series, video, pose and LFP. No statistics.
+  GPL-3.0, 0.2.0 (2026-05-07).
+- **No atlas or 3D in either [A].**
+
+### F9. Elephant (NeuralEnsemble/elephant)
+
+- **What [V]:** a Python analysis library on Neo. It covers spike train
+  statistics, correlation and cross-correlation histograms, unitary events,
+  SPADE and CuBIC.
+- **Surrogates [V], from `spike_train_surrogates.py`:** dither, randomise, ISI
+  shuffle, spike-train dither, jitter, bin shuffling, joint-ISI dithering and
+  trial shifting.
+- **Correction [V], from `spade.py`:** SPADE tests pattern significance against
+  surrogates with a multiple-testing correction, BH by default
+  (`stat_corr='fdr_bh'`; Bonferroni, Holm and others available).
+- **No GUI or atlas [V]:** plots come from the separate Viziphant package.
+- **Licence and status [V]:** BSD-3-Clause, 1.2.1 (2026-06-10).
+
+### F10. brainrender (brainglobe/brainrender) and Urchin (VirtualBrainLab/Urchin)
+
+- **brainrender [V]:** scripted 3D scenes on BrainGlobe atlases (Allen CCF and
+  others), with cells as points. `examples/probe_tracks.py` draws probe tracks
+  from brainglobe-segmentation. No statistics. BSD-3-Clause, v2.2.2
+  (2026-09-21).
+- **Urchin [V]:** a Python API (`oursin`) driving a Unity renderer for brain
+  areas, probes and neurons. It renders IBL's atlas website.
+  - **Archived:** the repository was archived on 2026-08-04.
+  - **Licence mismatch:** the repo says GPL-3.0, but `oursin` 1.0.1 on PyPI says
+    MIT.
+
+### F11. Newer: NeuroPyGuiN (BelloneLab/NeuroPyGuiN) and NeuroPyxels
+
+- **NeuroPyGuiN [V]:** a PySide6 desktop app, created 2026-02-26, with four tabs.
+  - **Preprocess and sort:** CatGT and Kilosort4 from SpikeGLX.
+  - **Curate:** phy or Bombcell.
+  - **Explore:** unit basics, CCG grids, condition PSTHs, a connection matrix,
+    Stark–Abeles monosynaptic significance, and cell types (C4, Bombcell).
+  - **Localise:** histology to Allen CCF, with optional hand-off to IBL's
+    alignment GUI.
+  - **Status:** last push 2026-09-24. **No licence file in the repository.**
+- **NeuroPyxels (`npyx`) [V], from `npyx/corr.py`, which NeuroPyGuiN's Explore
+  tab uses:**
+  - **Test:** monosynaptic significance compares the CCG with a
+    hollowed-Gaussian convolution (Stark & Abeles 2009), using a Poisson test.
+  - **Thresholds:** `p_th=0.01` on 3 consecutive bins.
+  - **Correction:** the docstring suggests dividing alpha by the bins tested for
+    "global significance". **No correction across pairs.**
+  - **Licence:** GPL-3.0, 4.3.1 (2026-08-19).
+- **Also seen, not audited:**
+  - **Power Pixels (bioRxiv 2025.06.27.661890):** a sorting pipeline that uses
+    SpikeInterface's GUI for curation, not an analysis app [V].
+  - **Spyglass (Frank lab):** a DataJoint and NWB framework for reproducible
+    analysis [A].
+  - **nwbwidgets:** Jupyter widgets with PSTHs and rasters, last release 0.11.3
+    in 2023 [V].
+
+### F matrix
+
+"Label" means the app itself calls a unit or pair responsive, tuned or
+connected.
+
+| | Kind | Local only | Inputs | Event-aligned views | Labels tested against a null | Correction across units or pairs | Connections | Atlas / 3D | Run provenance | Licence |
+|---|---|---|---|---|---|---|---|---|---|---|
+| CellExplorer | MATLAB GUI + pipeline | yes | Kilosort, Phy, many sorters, NWB | yes | connections: Poisson vs hollowed-Gaussian CCG | **no** (bins within a pair only) | yes, manual curation | regions; no CCF 3D [A] | `processinginfo` per file | BSD-3 |
+| NeuroExplorer | commercial desktop | yes | acquisition systems; NWB/Phy [A] | yes | per-bin 99% Poisson limits | **no** | CCG + shift predictor | no [A] | scripts [A] | commercial |
+| IBL websites | hosted, precomputed | **no** | IBL only | yes | none described [A] | — | no | CCF 3D, flatmap | IBL release | mostly undeclared |
+| Neurosift | web app (+ local mode) | optional | NWB, DANDI | yes | none | — | no | no | — | Apache-2.0 |
+| Phy | curation GUI | yes | Kilosort, klusta | no | none | — | CCG view only | no | — | BSD-3 |
+| SpikeInterface GUI | curation GUI (Qt/web) | yes | SortingAnalyzer | no | none | — | CCG view only | probe map | curation JSON | MIT |
+| sortingview | web views (cloud share) | **no** when shared | SpikeInterface | no | none | — | CCG view only | unit locations | — | Apache-2.0 |
+| Pynapple (+pynaviz) | library (+viewer) | yes | NWB, arrays | yes (code) | surrogates; tests by hand | by hand | correlograms | no [A] | — | MIT (GPL viewer) |
+| Elephant | library | yes | Neo | yes (code) | surrogates; SPADE tests | **BH default** (SPADE) | CCH, unitary events | no | — | BSD-3 |
+| brainrender / Urchin | 3D rendering | yes | coordinates | no | none | — | no | **yes** | — | BSD-3 / GPL (archived) |
+| NeuroPyGuiN (+npyx) | desktop GUI | yes | SpikeGLX → Kilosort4 → phy | condition PSTH | connections: Poisson vs hollowed CCG | **no** | yes, matrix | CCF localisation | — | none declared / GPL-3 |
+| **UnitWave Studio** | local web GUI | **yes** | IBL BWM/ONE, Phy, NWB | yes | responsive, selective, movement-locked, connected | **BH across the units or pairs tested** | exact interval jitter, excitatory | CCF 3D, probe strip | project file + export manifest with config hashes | — |
+
+### Honest novelty assessment: UnitWave Studio
+
+**Not novel, do not claim:**
+- **Event-aligned rasters, PSTHs, condition splits and tuning curves:** every
+  analysis tool above has them (NeuroExplorer, CellExplorer, Neurosift, pynapple,
+  NeuroPyGuiN).
+- **Correlograms and putative monosynaptic connections:** CellExplorer,
+  NeuroPyxels and NeuroPyGuiN. The interval-jitter null is Amarasingham et al.
+  2012, and jitter surrogates are in Elephant and pynapple.
+- **Unit quality views, waveforms and quality metrics:** phy, the SpikeInterface
+  GUI, sortingview, Bombcell and CellExplorer.
+- **3D atlas rendering of probes and units:** brainrender, Urchin, IBL's
+  websites. Probe localisation to CCF: NeuroPyGuiN, IBL's alignment GUI.
+- **A browser UI for neural data:** Neurosift, sortingview, the SpikeInterface
+  GUI's web mode.
+- **PCA trajectories on condition averages:** standard (Churchland et al. 2012).
+
+**Plausibly distinctive, in descending order of defensibility:**
+
+1. **Statistics on by default in a GUI.** Every label the app shows is tested
+   against a stated null, with a correction across the units or pairs actually
+   tested, the trial counts and the exclusions on screen.
+   - **The closest tools fall short of that:**
+     - CellExplorer corrects across lag bins but not across pairs;
+     - NeuroExplorer's PSTH limits are per bin, uncorrected;
+     - NeuroPyxels and NeuroPyGuiN test at p < 0.01 per pair, uncorrected;
+     - Elephant's SPADE corrects with BH, but it is a library and needs code.
+   - **Claim shape:** *a GUI in which every responsiveness, selectivity and
+     connection label is controlled for false discoveries across the set
+     tested.* This is a property of the software, checkable from its tests, not
+     a scientific finding.
+2. **An exact interval-jitter connection test, fast enough for a GUI.**
+   - **The method is not new:** Amarasingham et al. 2012.
+   - **What is distinctive:** exact distributions by FFT tree, no Monte Carlo
+     and so no seed, 30 units on a fast region in under a minute. It is an
+     implementation detail, not a contribution on its own.
+3. **One local app over IBL BWM, Phy folders and NWB, with project files and
+   export manifests.** The IBL websites are hosted and IBL-only. Neurosift is
+   NWB-only and descriptive. CellExplorer is local and broad, but MATLAB.
+   This is integration work.
+
+**Where others are ahead:**
+- **CellExplorer:** broader single-cell characterisation (cell types,
+  ground-truth classification, a large cell database, manual connection
+  curation), and per-file provenance.
+- **NeuroPyGuiN:** the whole path from raw data to sorting, curation and
+  histology in one app.
+- **Elephant:** far more spike-pattern statistics.
+- **Neurosift:** zero-install viewing of all of DANDI.
+
+**The framing that survives review:** "A local GUI for post-sorting analysis in
+which every label is a corrected test against a stated null, with trial counts
+shown." That is a tools contribution (JOSS or eNeuro methods), not a discovery,
+and it stands only as long as the matrix above stays true. Re-check it before
+any write-up.

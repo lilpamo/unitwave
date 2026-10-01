@@ -70,7 +70,24 @@ failures left. Differences from the plan:
 - **Report:** a table of session, what was tried, what failed and the fix. Each
   view is timed on the largest session, listing anything slower than 2 s.
 
-### S2. Prior-art audit (docs only) — planned
+### S2. Prior-art audit (docs only) — built (2026-10-01)
+
+Built: `docs/PRIOR_ART.md` §F, appended after the existing text, which is
+unchanged. Differences from the plan:
+- **Checked from sources, not run:** repositories, docs, source files, and PyPI
+  and GitHub metadata. Each claim is marked [V] or [A].
+- **Newer tools found:**
+  - NeuroPyGuiN (2026), a desktop app from sorting to histology with PSTHs and
+    connection tests;
+  - NeuroPyxels, its statistics library;
+  - Power Pixels, Spyglass and nwbwidgets, noted but not audited.
+- **Urchin was archived on 2026-08-04.**
+- **Finding:** none of the GUIs checked corrects its labels across the units or
+  pairs tested. CellExplorer corrects across lag bins only. NeuroExplorer and
+  NeuroPyxels/NeuroPyGuiN don't correct. Elephant's SPADE uses BH, but it is a
+  library.
+
+**The plan:**
 
 - **Where:** a section "F. Post-sorting analysis apps" in `docs/PRIOR_ART.md`.
 - **Verification:** each tool is checked against its current docs or repo and
