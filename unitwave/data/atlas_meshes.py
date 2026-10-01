@@ -10,6 +10,7 @@ renamed into place, so an interrupted one never looks cached.
 import os
 import urllib.request
 from collections.abc import Callable
+from http.client import HTTPException
 from pathlib import Path
 
 MESH_URL = (
@@ -17,6 +18,7 @@ MESH_URL = (
     "mouse_ccf/annotation/ccf_2017/structure_meshes/{}.obj"
 )
 _TIMEOUT_S = 60
+_ATTEMPTS = 2
 
 
 def _fetch(url: str) -> bytes:
@@ -33,7 +35,18 @@ def mesh_path(
     path = Path(root) / "ccf_2017_meshes" / f"{structure_id}.obj"
     if path.exists():
         return path
-    data = fetch(MESH_URL.format(structure_id))
+    # The Allen server sometimes stalls or cuts a download short (S1: 2 of ~20 on one
+    # day), so a failed download is tried once more before giving up.
+    for attempt in range(_ATTEMPTS):
+        try:
+            data = fetch(MESH_URL.format(structure_id))
+            break
+        except (OSError, HTTPException) as e:  # timeouts, refusals, HTTP errors, cut short
+            if attempt == _ATTEMPTS - 1:
+                raise OSError(
+                    f"could not download the mesh for structure {structure_id} from the "
+                    f"Allen Institute ({type(e).__name__}: {e}); it is tried again next time"
+                ) from e
     head = data[:4096].decode("ascii", errors="replace")
     if not any(line.startswith(("v ", "#", "o ")) for line in head.splitlines()):
         raise ValueError(f"the download for structure {structure_id} is not an OBJ mesh")

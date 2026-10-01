@@ -93,7 +93,11 @@ const overview = createOverview($('overview'), {
 let brainLoaded = false;
 function drawOverview(p) {
   const colours = p.colours[theme()];
-  if (!brainLoaded) { brainLoaded = true; overview.loadBrain(p.brain_id, css('--muted')); } else overview.setMuted(css('--muted'));
+  if (!brainLoaded) {
+    brainLoaded = true;
+    // A failed download is tried again on the next redraw; the probes draw without it.
+    overview.loadBrain(p.brain_id, css('--muted')).catch(() => { brainLoaded = false; });
+  } else overview.setMuted(css('--muted'));
   overview.update(p, colours);
   const present = new Set(p.lines.map((l) => l.lab));
   const shown = p.labs.filter((l) => present.has(l.lab) && !l.other);

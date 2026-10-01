@@ -6,6 +6,100 @@ first.
 
 ---
 
+### 2026-10-01 — S1 robustness pass: eight sessions, three fixes (`analysis/correlograms.py`, `data/atlas_meshes.py`, `viz/studio_plots.py`, page scripts)
+
+**What was run (the user's step S1):**
+- **Sessions:** eight BWM sessions that differ from d23a44ef, each opened with the
+  homepage's open request.
+- **Every view:** a scratch script made the page's 47 requests per session and
+  timed each one:
+  - the unit table, and rasters and PSTHs at every event;
+  - split PSTHs and tuning for every condition;
+  - responsiveness, with and without the movement-free option, and selectivity
+    for every comparison;
+  - the wheel, and movement locking;
+  - the trial view, unit quality and one pair;
+  - connections on the largest region with 2–30 units;
+  - the 3D view and probe strip, and trajectories in 2-D and 3-D;
+  - project save and reopen, and export.
+- **In the browser:** three sessions were opened from the homepage (6a601cc5,
+  3a3ea015, and connections run from the page's button).
+
+| Session | Why it was chosen | Failed | Fix |
+|---|---|---|---|
+| 3a3ea015 | Smallest: 2 good units. One shank (`probe00a`) of a Neuropixels 2.0 probe | Heatmap unit axis read 0.00, 0.25 … 2.00 | Whole-unit ticks |
+| 0c828385 | One probe. No video (no pose or motion energy) | Nothing | — |
+| b182b754 | One probe, deep structures only (MB, HB). Missing events: stimulus 4, first movement 16, feedback 5 | Connections on MRN (28 units): 164 s | Fast connection test: 8.1 s |
+| 6a601cc5 | Two probes. Fast MRN units (up to 90 Hz). 188 trials without a stimulus time | Connections on MRN (27 units) never finished (over 30 min). One mesh download stalled and hid every region mesh. One cut short and left the page an empty response | Fast connection test: 47 s, 37 s in the page. Meshes drawn one by one, retried |
+| 7f5df7eb | One probe, cortex only (343 good units) | Nothing | — |
+| c16d3557 | One probe, deep only (HB, CB). 248 of 459 good units in no Beryl region | Nothing | — |
+| 872ce8ff | Two probes, mostly hippocampus. No video | Nothing | — |
+| dd4da095 | Largest: 536 good units, 2,725 in all. Two probes. No video | Nothing | — |
+
+**Fix 1, the connection test (test-first, from 6a601cc5):**
+- **The cause:** step 8 convolved one jittered spike at a time, so a test cost
+  (spikes) × (observed count). One directed test in 6a601cc5's MRN took 58–102 s
+  (probe00_98 → probe00_117: 515,252 and 536,596 spikes, 144,142 lags).
+- **The fix, part 1:** draws are convolved in pairs, level by level, with batched
+  FFTs. Mass at or above observed + 1 is folded into one bin after each level,
+  which is exact because counts are never negative. That pair now takes 1.1 s.
+- **The fix, part 2:** a region's tests run on threads. Each test is exact and
+  independent, and a test checks the table equals testing each direction in
+  turn. On 72 real pairs, threaded and serial results are bitwise identical.
+- **Precision, against the old computation on real pairs:**
+  - errors in p are at most 2.6e-12;
+  - p below `P_RESOLUTION` (1e-9) is now reported as 1e-9, which is
+    conservative and far below any BH threshold (0.05 / 870 ≈ 6e-5);
+  - both p come from the last two bins of the distribution, not sums over many
+    bins;
+  - negatives from rounding are not clipped: clipping biased sums upward, by up
+    to 5e-9.
+- **Determinism:** the expected count uses NumPy sums, not a BLAS product. BLAS
+  gave a last-digit difference between a thread and the main thread.
+- **A bug in the first version, caught by the suite:** a pair where no lag could
+  ever fall in the window crashed. It has its own test now.
+
+**Fix 2, region meshes (test-first, from 6a601cc5):**
+- **What happened:** the Allen server stalled on structure 679 (CS) until the
+  60 s timeout, and the page drew no region meshes at all. It also cut short
+  structure 771 (P) after 63,508 of 916,133 bytes. That error (`IncompleteRead`)
+  is not an `OSError`, so the server's refusal missed it and the page got an
+  empty response.
+- **The fix:**
+  - a failed download is tried once more;
+  - any download failure becomes a plain refusal that names the structure;
+  - the page draws each mesh on its own, names the regions not drawn and why,
+    and forgets the failure so the next redraw asks again;
+  - the homepage's brain outline retries the same way.
+- **Checked in the browser:** with a failed download simulated, the other regions
+  were drawn and the note named the missing one. After the network was restored,
+  only that mesh was fetched again.
+
+**Fix 3, heatmap ticks (test-first, from 3a3ea015):** the unit axis uses whole
+numbers.
+
+**Slower than 2 s on the largest session (dd4da095); not changed, for review:**
+
+| View | Time | Where the time goes |
+|---|---|---|
+| Movement locking | 22.2 s | The permutation loop (13 s) and spike-window counts (7 s) |
+| Responsiveness | 12.5 s | FFTs for the all-shifts null (7.5 s) |
+| Responsiveness, movement-free trials | 11.6 s | The same |
+| Export | 8.5 s | Writing SVG and PDF in matplotlib (5.3 s, 1.9 s of it embedding fonts) |
+
+Everything else on that session took under 1.3 s. Connections on its largest
+region (DP) took 1.7 s. On the other sessions, locking took 5.8–16.4 s and
+responsiveness 7.6–12.7 s.
+
+**Not covered, because the release lacks them:**
+- **No missing wheel:** the behaviour release has wheel data for all 459 sessions
+  (`missing_wheel_sessions: []`). Phy folders cover the no-wheel case.
+- **No session with two shanks of one Neuropixels 2.0 probe:** the release has 4
+  shank insertions (`probe00a`, `probe00b`), one per session. 3a3ea015 covers a
+  single shank.
+
+**No new dependency:** `scipy.fft` is part of SciPy.
+
 ### 2026-10-01 — Population trajectories (`analysis/trajectories.py`, `configs/trajectories.yaml`)
 
 **What (the user's step 9):** a Trajectories tab beside Heatmap in the Population

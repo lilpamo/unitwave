@@ -13,7 +13,8 @@
   lag in the synaptic window [l1, l2). Under jitter it is a sum of independent
   per-spike counts, one per spike of b, each a function of its uniform position in
   its window. Their exact distribution comes from convolution, giving
-  p_high = P(X >= observed) and p_low = P(X <= observed).
+  p_high = P(X >= observed) and p_low = P(X <= observed). Exact up to float
+  rounding: p below P_RESOLUTION (1e-9) is reported as P_RESOLUTION.
   - **Direction:** "a -> b" tests b's spikes in [l1, l2) after a's; "b -> a" is the
     same with the units swapped. Both are tested for every pair, and BH runs across
     all of them.
@@ -21,7 +22,7 @@
     on p_high. Inhibition is not labelled: the jitter expectation is the true
     correlogram smoothed over the jitter windows, so a sharp peak at +2 ms raises
     the expectation at the opposite lags too. A real a -> b peak then makes a
-    significant "trough" b -> a (p ~ 1e-14 in the tests), which a two-sided label
+    significant "trough" b -> a (p below 1e-9 in the tests), which a two-sided label
     would call inhibition.
 - **Close pairs:** units on one probe whose sites are within `close_um` are flagged.
   Sorting misses near-simultaneous spikes on nearby channels, which makes a false
@@ -32,6 +33,7 @@ whose effect is spread over more than D is not what this tests.
 """
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
@@ -39,10 +41,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import yaml
+from scipy.fft import irfft, next_fast_len, rfft
 
 from unitwave.analysis.responsiveness import benjamini_hochberg, load_response_config
 
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "correlograms.yaml"
+# Float rounding in the FFT convolutions: against one-spike-at-a-time convolution on
+# real pairs (session 6a601cc5), errors in p were at most 2.6e-12, growing with the
+# number of spikes. Smaller p are not resolved; 1e-9 leaves a 400x margin and sits far
+# below any BH threshold (0.05 / 870 tests ~ 6e-5).
+P_RESOLUTION = 1e-9
 _KEYS = ("window_s", "bin_s", "jitter_s", "synaptic_window_s", "max_units", "close_um")
 
 
@@ -122,7 +130,7 @@ def jitter_expected_ccg(a, b, window_s: float, bin_s: float, jitter_s: float) ->
 @dataclass(frozen=True)
 class JitterTest:
     """observed: the count; expected: its mean under jitter; p_high = P(X >= observed),
-    p_low = P(X <= observed), both exact under the jitter null."""
+    p_low = P(X <= observed), both exact under the jitter null (to P_RESOLUTION)."""
 
     observed: int
     expected: float
@@ -135,8 +143,12 @@ def _count_at(a: np.ndarray, t: np.ndarray, l1: float, l2: float) -> np.ndarray:
     return np.searchsorted(a, t - l1, side="right") - np.searchsorted(a, t - l2, side="right")
 
 
-def jitter_test(a, b, lag_window, jitter_s: float) -> JitterTest:
-    """Exact interval-jitter test of the count of b - a lags in lag_window."""
+def window_pmfs(a, b, lag_window, jitter_s: float) -> tuple[int, np.ndarray, np.ndarray]:
+    """The test's ingredients: the observed count of b - a lags in lag_window, and for
+    each jitter window holding b's spikes where the count can be nonzero, the pmf of
+    one jittered spike's count, pmfs (n_windows, n_values), and how many of b's spikes
+    the window holds, copies (n_windows,). Windows where the count is 0 everywhere add
+    nothing and are left out."""
     a, b = np.asarray(a, np.float64), np.asarray(b, np.float64)
     l1, l2 = lag_window
     observed = int(_count_at(a, b, l1, l2).sum())
@@ -158,30 +170,72 @@ def jitter_test(a, b, lag_window, jitter_s: float) -> JitterTest:
     seg_start, seg_len = points[:-1], np.diff(points)
     seg_index = window_of(seg_start)
     keep = (seg_index >= 0) & (seg_len > 0)
-    seg_start, seg_len = seg_start[keep], seg_len[keep]
-    seg_window = windows[seg_index[keep]]
+    seg_start, seg_len, seg_index = seg_start[keep], seg_len[keep], seg_index[keep]
     value = _count_at(a, seg_start, l1, l2)
-    nonzero = np.unique(seg_window[value > 0])
-    # pmf per window with a nonzero count somewhere: probability = length / jitter_s.
-    dist = np.zeros(observed + 2)  # index observed + 1 holds P(X >= observed + 1)
-    dist[0] = 1.0
-    expected = 0.0
-    cap = observed + 1
-    order = np.argsort(seg_window, kind="stable")
-    sw, sv, sl = seg_window[order], value[order], seg_len[order]
-    bounds = np.searchsorted(sw, nonzero, side="left"), np.searchsorted(sw, nonzero, side="right")
-    copies = m[np.searchsorted(windows, nonzero)]
-    for start, stop, n in zip(*bounds, copies):
-        pmf = np.bincount(sv[start:stop], weights=sl[start:stop]) / jitter_s
-        pmf[0] += 1.0 - pmf.sum()  # rounding: lengths sum to the window
-        expected += n * float(np.dot(np.arange(pmf.size), pmf))
-        for _ in range(n):
-            dist = np.convolve(dist, pmf)
-            dist[cap] = dist[cap:].sum()
-            dist = dist[: cap + 1]
-    p_high = float(dist[observed:].sum())
-    p_low = float(dist[: observed + 1].sum())
-    return JitterTest(observed, expected, min(1.0, p_high), min(1.0, p_low))
+    nonzero = np.unique(seg_index[value > 0])
+    mine = np.isin(seg_index, nonzero)
+    # Probability of each count = the length of window where it holds / jitter_s.
+    pmfs = np.zeros((nonzero.size, int(value.max(initial=0)) + 1))
+    row = np.searchsorted(nonzero, seg_index[mine])
+    np.add.at(pmfs, (row, value[mine]), seg_len[mine] / jitter_s)
+    pmfs[:, 0] += 1.0 - pmfs.sum(axis=1)  # rounding: lengths sum to the window
+    copies = m[nonzero]
+    assert pmfs.shape == (copies.size, pmfs.shape[1])
+    return observed, pmfs, copies
+
+
+def _fold(rows: np.ndarray, cap: int) -> np.ndarray:
+    """(n, width) -> (n, min(width, cap + 1)), the mass at cap and above in column cap."""
+    if rows.shape[1] > cap + 1:
+        rows[:, cap] = rows[:, cap:].sum(axis=1)
+        rows = rows[:, : cap + 1]
+    return rows
+
+
+def capped_sum_distribution(pmfs: np.ndarray, copies: np.ndarray, cap: int) -> np.ndarray:
+    """(cap + 1,) distribution of a sum of independent counts, copies[i] of them drawn
+    from pmfs[i] (pmfs: (n_windows, n_values)); the last bin holds P(sum >= cap).
+
+    Exact up to float rounding: the draws are convolved in pairs, level by level, with
+    batched FFTs (about n log n work for n draws, where convolving them one at a time
+    costs n x cap). Mass at cap and above is folded into the last bin after each level,
+    which is exact because counts are never negative. Rounding leaves small errors of
+    either sign in each bin (not clipped: clipping biases sums upward), so
+    probabilities below P_RESOLUTION are not resolved.
+    """
+    pmfs, copies = np.asarray(pmfs, np.float64), np.asarray(copies, np.int64)
+    assert pmfs.ndim == 2 and copies.shape == (pmfs.shape[0],)
+    rows = _fold(np.repeat(pmfs, copies, axis=0), cap)  # (n_draws, width)
+    if rows.shape[0] == 0:
+        rows = np.zeros((1, 1))
+        rows[0, 0] = 1.0
+    while rows.shape[0] > 1:
+        if rows.shape[0] % 2:  # an odd one out is paired with a sum of nothing
+            nothing = np.zeros((1, rows.shape[1]))
+            nothing[0, 0] = 1.0
+            rows = np.vstack([rows, nothing])
+        width = 2 * rows.shape[1] - 1
+        size = next_fast_len(width, real=True)
+        merged = irfft(rfft(rows[0::2], size) * rfft(rows[1::2], size), size)[:, :width]
+        rows = _fold(merged, cap)
+    dist = np.zeros(cap + 1)
+    dist[: rows.shape[1]] = rows[0]
+    return dist
+
+
+def jitter_test(a, b, lag_window, jitter_s: float) -> JitterTest:
+    """Exact interval-jitter test of the count of b - a lags in lag_window. p below
+    P_RESOLUTION is reported as P_RESOLUTION (conservative)."""
+    observed, pmfs, copies = window_pmfs(a, b, lag_window, jitter_s)
+    # NumPy reductions, not BLAS products: BLAS can sum in a different order on another
+    # thread, and the same pair must give the same number every time.
+    expected = float((copies * (pmfs * np.arange(pmfs.shape[1])).sum(axis=1)).sum())
+    # Capped at observed + 1: the last bin holds P(X >= observed + 1). Both p come from
+    # the last two bins, not sums over many bins, which would add up their rounding.
+    dist = capped_sum_distribution(pmfs, copies, observed + 1)
+    p_high = float(np.clip(dist[observed] + dist[observed + 1], P_RESOLUTION, 1.0))
+    p_low = float(np.clip(1.0 - dist[observed + 1], P_RESOLUTION, 1.0))
+    return JitterTest(observed, expected, p_high, p_low)
 
 
 def close_pairs(units: pd.DataFrame, pairs, close_um: float) -> tuple[list, list[str]]:
@@ -229,11 +283,23 @@ def connections(
     alpha = load_response_config().alpha if alpha is None else alpha
     pairs = list(combinations(unit_ids, 2))
     close, why = close_pairs(units, pairs, cfg.close_um)
-    rows = []
-    for (u, v), c, w in zip(pairs, close, why):
-        for pre, post in ((u, v), (v, u)):
-            r = jitter_test(spikes[pre], spikes[post], cfg.synaptic_window_s, cfg.jitter_s)
-            rows.append((pre, post, r.observed, r.expected, r.p_high, c, w))
+    directed = [
+        (pre, post, c, w)
+        for (u, v), c, w in zip(pairs, close, why)
+        for pre, post in ((u, v), (v, u))
+    ]
+
+    def test(d):
+        return jitter_test(spikes[d[0]], spikes[d[1]], cfg.synaptic_window_s, cfg.jitter_s)
+
+    # Each test is exact and independent of the others, so running them on threads
+    # changes only how long they take (S1: 702 tests in one region of 6a601cc5).
+    with ThreadPoolExecutor() as pool:
+        results = list(pool.map(test, directed))
+    rows = [
+        (pre, post, r.observed, r.expected, r.p_high, c, w)
+        for (pre, post, c, w), r in zip(directed, results)
+    ]
     out = pd.DataFrame(
         rows, columns=["pre", "post", "observed", "expected", "p", "close", "close_why"]
     )

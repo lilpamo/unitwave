@@ -1,20 +1,27 @@
 """Cross-correlograms and putative connections. Spike trains here are test inputs,
 never shown as data."""
 
+import time
+
 import numpy as np
 import pandas as pd
 import pytest
 from scipy.stats import kstest
 
 from unitwave.analysis.correlograms import (
+    P_RESOLUTION,
     CorrelogramConfig,
+    capped_sum_distribution,
     close_pairs,
     connections,
     cross_correlogram,
     jitter_expected_ccg,
     jitter_test,
     load_correlogram_config,
+    window_pmfs,
 )
+from unitwave.data.cache import SessionCache
+from unitwave.data.load import key_parts, load_data_config, load_session
 
 CFG = CorrelogramConfig(0.025, 0.0005, 0.005, (0.001, 0.004), 30, 50.0)
 
@@ -130,6 +137,22 @@ def test_connections_refuse_too_many_units():
         connections(spikes, list(units.index), units, CFG)
 
 
+def test_connections_table_equals_testing_each_direction_in_turn():
+    # The tests run on threads (S1: 702 tests took 160 s in one 6a601cc5 region); each
+    # is exact, so the table must be the same as testing the directions one by one.
+    rng = np.random.default_rng(4)
+    ids = [f"u{i}" for i in range(6)]
+    spikes = {u: _poisson(rng, 15, 40) for u in ids}
+    units = pd.DataFrame(
+        {"probe": "p0", "depth_um": np.arange(6) * 100.0, "lateral_um": 0.0}, index=ids
+    )
+    table = connections(spikes, ids, units, CFG, alpha=0.05)
+    assert table.shape[0] == 6 * 5
+    for row in table.itertuples():
+        r = jitter_test(spikes[row.pre], spikes[row.post], CFG.synaptic_window_s, CFG.jitter_s)
+        assert (row.observed, row.expected, row.p) == (r.observed, r.expected, r.p_high)
+
+
 def test_late_spikes_give_the_same_test_as_early_ones():
     # Jitter windows sit on a grid from time 0, so shifting both trains by a whole
     # number of windows must not change anything. Late in a session, floor(t / D)
@@ -141,3 +164,94 @@ def test_late_spikes_give_the_same_test_as_early_ones():
     assert late.observed == early.observed
     assert late.expected == pytest.approx(early.expected, rel=1e-9)
     assert late.p_high == pytest.approx(early.p_high, rel=1e-6)
+
+
+def test_capped_sum_distribution_by_hand():
+    # Two draws from (1/2, 1/2) and one from (0, 1/4, 3/4): the sum is 1 + Binomial(2, 1/2)
+    # plus another Bernoulli(3/4), so P = (0, 1/16, 5/16, 7/16, 3/16) on 0..4.
+    pmfs = np.array([[0.5, 0.5, 0.0], [0.0, 0.25, 0.75]])
+    full = capped_sum_distribution(pmfs, np.array([2, 1]), cap=4)
+    np.testing.assert_allclose(full, [0, 1 / 16, 5 / 16, 7 / 16, 3 / 16], atol=1e-15)
+    # Capped at 2: the last bin holds P(sum >= 2).
+    capped = capped_sum_distribution(pmfs, np.array([2, 1]), cap=2)
+    np.testing.assert_allclose(capped, [0, 1 / 16, 15 / 16], atol=1e-15)
+    # No draws: the sum is 0.
+    none = capped_sum_distribution(np.zeros((0, 3)), np.zeros(0, int), cap=3)
+    np.testing.assert_array_equal(none, [1, 0, 0, 0])
+
+
+# Real case (S1): session 6a601cc5, MRN. Step 8 convolved one jittered spike at a time,
+# so a test cost (lags in the window) x (spikes): 58 s for probe00_98 -> probe00_117
+# (515252 and 536596 spikes, 144142 lags), over 30 minutes for the region's 702 tests.
+EID_6A60 = "6a601cc5-7b79-4c75-b0e8-552246532f82"
+needs_6a60 = pytest.mark.skipif(
+    not SessionCache(load_data_config().cache_root).path(key_parts(EID_6A60, "bwm")).exists(),
+    reason="session 6a601cc5 is not in the session cache",
+)
+
+
+@pytest.fixture(scope="module")
+def spikes_6a60():
+    return load_session(EID_6A60, "bwm").spikes
+
+
+def _sequential_reference(pmfs, copies, cap):
+    """Step 8's computation: one convolution per jittered spike, the tail folded into
+    the last bin after each."""
+    dist = np.zeros(cap + 1)
+    dist[0] = 1.0
+    for pmf, n in zip(pmfs, copies):
+        for _ in range(n):
+            dist = np.convolve(dist, pmf)
+            dist[cap] = dist[cap:].sum()
+            dist = dist[: cap + 1]
+    return dist
+
+
+@needs_6a60
+def test_real_pair_distribution_matches_the_one_spike_at_a_time_computation(spikes_6a60):
+    a, b = spikes_6a60["probe00_129"], spikes_6a60["probe00_98"]
+    observed, pmfs, copies = window_pmfs(a, b, CFG.synaptic_window_s, CFG.jitter_s)
+    assert observed == 5811
+    assert pmfs.ndim == 2 and copies.shape == (pmfs.shape[0],)
+    np.testing.assert_allclose(pmfs.sum(axis=1), 1.0, atol=1e-12)
+    cap = observed + 1
+    fast = capped_sum_distribution(pmfs, copies, cap)
+    slow = _sequential_reference(pmfs, copies, cap)
+    assert fast.shape == slow.shape == (cap + 1,)
+    np.testing.assert_allclose(fast, slow, rtol=0, atol=P_RESOLUTION / 10)
+    r = jitter_test(a, b, CFG.synaptic_window_s, CFG.jitter_s)
+    assert r.observed == observed
+    assert r.p_high == pytest.approx(max(slow[observed:].sum(), P_RESOLUTION), abs=P_RESOLUTION)
+    assert r.p_low == pytest.approx(slow[: observed + 1].sum(), abs=P_RESOLUTION)
+
+
+@needs_6a60
+def test_real_high_rate_pair_is_tested_in_seconds_with_the_right_moments(spikes_6a60):
+    a, b = spikes_6a60["probe00_98"], spikes_6a60["probe00_117"]
+    start = time.perf_counter()
+    r = jitter_test(a, b, CFG.synaptic_window_s, CFG.jitter_s)
+    elapsed = time.perf_counter() - start
+    assert r.observed == 144142
+    assert elapsed < 5.0, f"{elapsed:.1f} s (step 8 took 58 s)"
+    # Uncapped, the sum's mean and variance are the windows' summed.
+    _, pmfs, copies = window_pmfs(a, b, CFG.synaptic_window_s, CFG.jitter_s)
+    values = np.arange(pmfs.shape[1])
+    means = pmfs @ values
+    variances = pmfs @ values**2 - means**2
+    support = int(copies @ np.array([np.flatnonzero(p).max() for p in pmfs]))
+    full = capped_sum_distribution(pmfs, copies, cap=support)
+    x = np.arange(full.size)
+    assert full.sum() == pytest.approx(1.0, abs=P_RESOLUTION)
+    assert full @ x == pytest.approx(copies @ means, abs=0.01)  # a wrong draw moves it by >= 1
+    assert full @ (x - full @ x) ** 2 == pytest.approx(copies @ variances, rel=1e-6)
+    assert r.expected == pytest.approx(copies @ means, rel=1e-12)
+
+
+def test_a_pair_with_no_possible_lag_in_the_window_tests_as_nothing_seen():
+    # b's spikes are seconds from any of a's, so no jitter can put a lag in 1-4 ms.
+    a, b = np.array([1.0, 2.0]), np.array([5.0, 9.0])
+    observed, pmfs, copies = window_pmfs(a, b, CFG.synaptic_window_s, CFG.jitter_s)
+    assert observed == 0 and pmfs.shape[0] == copies.size == 0
+    r = jitter_test(a, b, CFG.synaptic_window_s, CFG.jitter_s)
+    assert (r.observed, r.expected, r.p_high, r.p_low) == (0, 0.0, 1.0, 1.0)

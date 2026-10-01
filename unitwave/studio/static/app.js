@@ -768,7 +768,15 @@ const brain = (() => {
   }
 
   function mesh(id) {
-    if (!meshes.has(id)) meshes.set(id, loader.loadAsync(`/mesh/${id}.obj`));
+    // The server's refusal is plain words; a failed download is not kept, so the next
+    // redraw asks again.
+    if (!meshes.has(id)) {
+      meshes.set(id, fetch(`/mesh/${id}.obj`).then(async (r) => {
+        const text = await r.text();
+        if (!r.ok) throw new Error(text.replace(/^Cannot show this: /, ''));
+        return loader.parse(text);
+      }).catch((e) => { meshes.delete(id); throw e; }));
+    }
     return meshes.get(id);
   }
 
@@ -804,25 +812,27 @@ const brain = (() => {
     if (!framed) { geom.computeBoundingBox(); frame(geom.boundingBox.clone().expandByScalar(2500)); }
     render();
     note('Loading meshes… the first view downloads them from the Allen Institute.');
-    try {
-      const whole = await mesh(g.brain_id);
-      if (gen !== generation) return;
-      whole.traverse((o) => { if (o.isMesh) o.material = brainMaterial; });
-      scene.add(whole);
-      if (!framed) { frame(new THREE.Box3().setFromObject(whole)); framed = true; }
-      const regions = await Promise.all(g.meshes.map(async (m) => {
-        const obj = await mesh(m.id);
-        obj.traverse((o) => { if (o.isMesh) o.material = new THREE.MeshLambertMaterial({ color: m.colour, transparent: true, opacity: 0.3, depthWrite: false }); });
-        obj.userData.acronym = m.acronym;
-        return obj;
-      }));
-      if (gen !== generation) return;
-      regionGroup.clear();
-      regionGroup.add(...regions);
-      note(`${g.meshes.length} ${state.level} regions · ${ids.length} units · ${g.tracks.length} probe track${g.tracks.length === 1 ? '' : 's'} · drag to rotate, click a unit to select it`);
-    } catch (e) {
-      note(`Meshes unavailable: ${e.message}`);
+    // Each mesh on its own: one failed download leaves the others drawn.
+    const [whole, ...regions] = await Promise.allSettled([mesh(g.brain_id), ...g.meshes.map((m) => mesh(m.id))]);
+    if (gen !== generation) return;
+    if (whole.status === 'fulfilled') {
+      whole.value.traverse((o) => { if (o.isMesh) o.material = brainMaterial; });
+      scene.add(whole.value);
+      if (!framed) { frame(new THREE.Box3().setFromObject(whole.value)); framed = true; }
     }
+    regionGroup.clear();
+    const notDrawn = whole.status === 'rejected' ? ['the brain outline'] : [];
+    regions.forEach((r, i) => {
+      const m = g.meshes[i];
+      if (r.status === 'rejected') { notDrawn.push(m.acronym); return; }
+      r.value.traverse((o) => { if (o.isMesh) o.material = new THREE.MeshLambertMaterial({ color: m.colour, transparent: true, opacity: 0.3, depthWrite: false }); });
+      r.value.userData.acronym = m.acronym;
+      regionGroup.add(r.value);
+    });
+    const failed = [whole, ...regions].find((r) => r.status === 'rejected');
+    note(`${regionGroup.children.length} ${state.level} regions · ${ids.length} units · ` +
+      `${g.tracks.length} probe track${g.tracks.length === 1 ? '' : 's'} · drag to rotate, click a unit to select it` +
+      (failed ? ` · Not drawn: ${notDrawn.join(', ')}: ${failed.reason.message}` : ''));
     render();
   }
 

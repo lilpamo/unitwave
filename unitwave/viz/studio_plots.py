@@ -21,6 +21,7 @@ from matplotlib.colors import LinearSegmentedColormap, to_hex, to_rgb
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
+from matplotlib.ticker import MaxNLocator
 
 from unitwave.analysis.psth import PSTH
 from unitwave.analysis.trial_view import alignment_label
@@ -355,6 +356,7 @@ def build_population_figure(
     cb.outline.set_visible(False)
     cax.tick_params(colors=t["ink2"], labelsize=7, length=2)
     ax_h.set_ylabel("unit (sorted by peak time)")
+    ax_h.yaxis.set_major_locator(MaxNLocator(integer=True))  # whole units, even for 2
     ax_h.tick_params(labelbottom=False)
     if row_groups is not None:
         assert len(row_groups) == scaled.shape[0]

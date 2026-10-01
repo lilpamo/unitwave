@@ -32,7 +32,27 @@ the previous one uncommitted.
 - Every new dependency gets a DECISIONS.md line.
 - A step needing changes to `preprocess/` or `splits/` stops and asks first (§10).
 
-### S1. Robustness pass (no new features) — planned
+### S1. Robustness pass (no new features) — built (2026-10-01)
+
+Built (`docs/DECISIONS.md`, "S1 robustness pass"). Eight sessions, every view, no
+failures left. Differences from the plan:
+- **Not available in the release:** a session without wheel (all 459 have it),
+  and two shanks of one Neuropixels 2.0 probe (one shank per session at most).
+  3a3ea015 covers a single NP2.0 shank.
+- **Found and fixed, each with a test from the real case:**
+  - the connection test never finished on fast units: over 30 minutes for one
+    region of 6a601cc5, now 37 s in the page;
+  - one failed mesh download hid every region mesh, and a download cut short
+    left the page an empty response;
+  - the heatmap's unit axis had fractional ticks with 2 units.
+- **Over 2 s on the largest session (dd4da095), not changed:**
+  - movement locking 22.2 s;
+  - responsiveness 12.5 s, and 11.6 s on movement-free trials;
+  - export 8.5 s.
+- **Browser checks:** the browser found the mesh bugs, which the scripted
+  requests did not.
+
+**The plan:**
 
 - **Sessions:** about 8 BWM sessions from the catalog that differ from d23a44ef:
   - one probe only;
