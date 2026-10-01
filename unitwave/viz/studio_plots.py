@@ -786,7 +786,7 @@ def build_trajectory_figure(r, colours: list[str], dims: int, theme: str, title=
     """Population trajectories (analysis.trajectories.Trajectories) on pc_1-pc_2, or
     pc_1-pc_3 in 3-D, one line per condition (open circle at the window's start, filled
     dot at the event); below, each component against time. Descriptive: axes are pc_k
-    and nothing is labelled."""
+    with their share of the shown (held-out) trials' variance, and nothing is labelled."""
     t = _theme(theme)
     k = r.trajectories.shape[2]
     dims = 3 if dims == 3 and k >= 3 else 2
@@ -809,10 +809,12 @@ def build_trajectory_figure(r, colours: list[str], dims: int, theme: str, title=
         ax.plot(*coords, color=colour, lw=1.8, label=f"{name} ({nf}/{ns})")
         ax.plot(*[[c[0]] for c in coords], "o", mfc="none", mec=colour, ms=5)
         ax.plot(*[[c[zero]] for c in coords], "o", color=colour, ms=5)
-    ax.set_xlabel(r.axis_names[0])
-    ax.set_ylabel(r.axis_names[1])
+    share = [f"{v:.0%}" for v in r.explained_held_out]
+    names = [f"{n} ({v})" for n, v in zip(r.axis_names, share)]
+    ax.set_xlabel(names[0])
+    ax.set_ylabel(names[1])
     if dims == 3:
-        ax.set_zlabel(r.axis_names[2], labelpad=8)
+        ax.set_zlabel(names[2], labelpad=8)
         ax.tick_params(colors=t["ink2"], labelsize=7)
         for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
             axis.label.set_color(t["ink2"])
@@ -821,16 +823,20 @@ def build_trajectory_figure(r, colours: list[str], dims: int, theme: str, title=
         _style(ax, t)
         ax.grid(color=t["grid"], lw=0.6)
         ax.set_axisbelow(True)
-    fig.legend(
+    legend = fig.legend(
         loc="upper left",
         bbox_to_anchor=(0.77, (1 - top + 0.06 + top - 0.1) * squeeze),
         fontsize=6.5,
         frameon=False,
         labelcolor=t["ink2"],
         handlelength=1.2,
-        title="trials fit/shown\n○ window start · ● event",
+        title=(
+            "trials fit/shown\n○ window start · ● event\n"
+            "pc_k (%): share of the\nshown trials' variance"
+        ),
         title_fontsize=6.5,
     )
+    legend.get_title().set_color(t["ink2"])  # labelcolor themes only the entries
     first = None
     for i in range(rows):
         bottom = (1 - top - 0.02) - (i + 1) * (1 - top - 0.08) / rows
@@ -838,7 +844,7 @@ def build_trajectory_figure(r, colours: list[str], dims: int, theme: str, title=
         first = first or a
         for traj, colour in zip(r.trajectories, colours):
             a.plot(r.bin_centers, traj[:, i], color=colour, lw=1.4)
-        a.set_ylabel(r.axis_names[i], rotation=0, ha="right", va="center")
+        a.set_ylabel(f"{r.axis_names[i]}\n{share[i]}", rotation=0, ha="right", va="center")
         a.axvline(0, color=t["muted"], lw=1, ls=(0, (3, 3)))
         a.grid(axis="y", color=t["grid"], lw=0.6)
         a.set_axisbelow(True)

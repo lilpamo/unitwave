@@ -141,7 +141,7 @@ starting.
 - **Test first:** the GUI path gives the same table as the CLI path on the same
   session and config.
 
-### S4. Population trajectories (plan step 9) — mostly built (229cd58)
+### S4. Population trajectories (plan step 9) — built (2026-10-01)
 
 The engine, the cross-validation and both tests are already in place: plan step 9
 below.
@@ -151,11 +151,13 @@ below.
   - 2D and 3D views with the event marked;
   - tests for planted low-dimensional structure and for a fit that never touches
     the displayed half.
-- **Differences left to do:**
-  - Components are named `pc_1` (the plan's R5 reading), not PC1, and their
-    variance explained is in the caption, not on the axes.
-  - The caption doesn't give both trial counts; the legend gives them per
-    condition.
+- **Finished in S4:**
+  - Each component's share of the shown trials' variance is on its axis, as
+    `pc_1 (58%)`; the legend says what the percentage is. Names stay `pc_k` (R5).
+  - The caption gives both trial counts ("fit on 146 trials (1st, 3rd, ...) and
+    shown on the other 144"), and the legend still gives them per condition.
+- **Found on the way:** the legend's title was drawn black, unreadable on the dark
+  page; it now uses the theme's ink.
 
 ### S5. Across-session region summaries (plan step 12) — planned
 

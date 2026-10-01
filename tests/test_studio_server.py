@@ -463,6 +463,8 @@ def test_trajectories_on_real_data_are_descriptive(tmp_path):
     assert d["names"] == ["right (-1)", "left (+1)"] and d["axis_names"] == ["pc_1", "pc_2", "pc_3"]
     assert d["n_fit"] == [108, 38] and d["n_show"] == [107, 37]
     assert "descriptive (no test)" in d["caption"]
+    # S4: both trial counts, the fitted and the shown half, are in the caption.
+    assert "fit on 146 trials (1st, 3rd, ...) and shown on the other 144" in d["caption"]
     # The page shows no labels: nothing it is sent names a unit or a trajectory as one.
     assert not any(w in json.dumps(d).lower() for w in LABEL_WORDS)
     for dims in ("2", "3"):

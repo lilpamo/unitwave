@@ -6,6 +6,25 @@ first.
 
 ---
 
+### 2026-10-01 — S4 trajectories finished: variance on the axes, both trial counts (`viz/studio_plots.py`, `studio/server.py`)
+
+**What (the user's step S4):** the two differences between plan step 9 and what was
+built.
+- **Axes:** each component's share of the shown (held-out) trials' variance is on
+  its axis, as `pc_1 (58%)`. The component rows show it under the name. Names stay
+  `pc_k` (R5), and the legend says what the percentage is.
+- **Short labels:** "pc_1 (58% of shown variance)" collided with the tick labels
+  and the legend in 3-D.
+- **Caption:** gives both trial counts, fit and shown, summed over conditions: on
+  d23a44ef split by choice, fit on 146 trials and shown on 144. The legend keeps
+  the per-condition counts.
+
+**A bug found and fixed:** the trajectory legend's title was drawn in matplotlib's
+default black. `labelcolor` themes only the entries, so on the dark page the title
+was unreadable. It now uses the theme's ink, with a test.
+
+**No new dependency; descriptive as before** (no test, no label).
+
 ### 2026-10-01 — S3 decoding in Studio (`analysis/decoding.py`, `evaluation/single_session.py`, `configs/studio_decoding.yaml`, stimulus-side target)
 
 **What (the user's step S3, plan step 10):**

@@ -1188,8 +1188,9 @@ class Studio:
         not_shown = "".join(f" · {name} not shown: {why}" for name, why in r.excluded.items())
         caption = (
             f"{len(ids)} units ({q.get('node') or 'all regions'}) · {EVENTS[q['event']][0]} · "
-            f"{how} · principal components of condition-averaged rates, fit on alternate "
-            "trials (1st, 3rd, ...) and shown on the others · descriptive (no test) · "
+            f"{how} · principal components of condition-averaged rates, fit on "
+            f"{sum(r.n_fit)} trials (1st, 3rd, ...) and shown on the other {sum(r.n_show)} · "
+            "descriptive (no test) · "
             f"variance of the shown trials on {shown}{not_shown}{dropped}"
             f"{self._trial_note(sel)}"
         )
