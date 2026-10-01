@@ -6,6 +6,44 @@ first.
 
 ---
 
+### 2026-10-01 — Next: other datasets and tasks
+
+**The aim (the user's plan, 2026-10-01):** UnitWave on any task, proven dataset by
+dataset rather than through an abstract universal format.
+
+**The order** (`docs/proposals/studio_next_steps.md`, "Current sequence … other
+datasets and tasks"):
+0. this plan (docs only);
+1. a robustness pass on varied IBL sessions: done, as S1;
+2. the prior-art audit: done, as S2. Pending: a column in §F's matrix, "works with
+   tasks and datasets beyond one lab";
+3. user-defined tasks. Task definition files go in `configs/tasks/`, and IBL is one
+   built-in definition, with no behaviour change;
+4. QC from spike times, for any source. IBL's signed-off default is not changed;
+5. general NWB intake, proven on Steinmetz et al. 2019 (DANDI 000017);
+6. the Allen Brain Observatory Visual Coding (Neuropixels), a passive task;
+7. a dataset without the Allen mouse atlas;
+8. decoding, trajectories and region summaries, for any task;
+9. guided workflow recipes, each declaring the task features it needs.
+
+**Plan only:** Phy clock sync and channel locations, the installer, unit browsing
+extras, and an AI layer over recipes (CLAUDE.md §6).
+
+**Work already built (the user's decision, 2026-10-01):**
+- **Kept:** S3 (decoding), S4 (trajectories) and S5 (region summaries) were built
+  against IBL's targets and conditions. They stay on `studio-prototype`, and step
+  8 rewrites them against task definitions.
+- **Replaced:** S6 (unit browsing) hadn't started; its extras move to plan only.
+  S7 (user-defined tasks) becomes step 3, and S8 (recipes) step 9.
+
+**Rules added for these steps** (the earlier ones stand):
+- ask before changing `preprocess/`, `splits/` or a signed-off QC default (R6);
+- test fixtures stay in tests, and nothing synthetic is shown as real;
+- before downloading any dataset, list the files and sizes and wait for the user's
+  OK.
+
+**Docs only.**
+
 ### 2026-10-01 — S5 region summaries across a session set (`analysis/summary.py`, `cli/summarise.py`, `configs/summary.yaml`, `viz/summary_plots.py`)
 
 **What (the user's step S5, plan step 12):** per region, at the Beryl level, across

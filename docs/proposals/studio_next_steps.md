@@ -6,7 +6,158 @@ the prototype's rule: the UI computes nothing itself. It loads through `data/`
 and `qc/`, gets every number from `unitwave/analysis/` and draws through
 `viz/`.
 
-## Current sequence (2026-10-01): S1–S8, in order
+## Current sequence (2026-10-01, second): other datasets and tasks
+
+The user's plan from here (`docs/DECISIONS.md`, "Next: other datasets and tasks"):
+UnitWave on any task, proven dataset by dataset rather than through an abstract
+universal format. It replaces every step of the S1–S8 sequence below that hadn't
+started:
+- **Replaced steps:** S6 (unit browsing) moves to "plan only", S7 becomes step 3,
+  and S8 becomes step 9.
+- **Kept:** S3–S5 (decoding, trajectories, region summaries) were built against
+  IBL's targets and are kept (the user, 2026-10-01). Step 8 rewrites them against
+  task definitions.
+
+**After each step, and rules for every step:** as for S1–S8 below, plus:
+- **Ask first** before changing `preprocess/`, `splits/` or any signed-off QC
+  default (R6).
+- **No synthetic data shown as real:** test fixtures stay in tests.
+- **Before downloading any dataset:** list the files and sizes and wait for the
+  user's OK.
+
+### Step 0. Plan (docs only) — built (2026-10-01)
+
+This section, and the DECISIONS.md entry.
+
+### Step 1. Robustness pass on varied IBL sessions — built as S1 (2026-10-01)
+
+### Step 2. Prior-art audit (docs only) — built as S2 (2026-10-01); one addition pending
+
+Pending: a column in `docs/PRIOR_ART.md` §F's matrix, "works with tasks and
+datasets beyond one lab".
+
+### Step 3. User-defined tasks — planned
+
+Today, events and conditions are hard-coded to IBL's trial columns.
+- **A task definition file** per task, YAML in `configs/tasks/`. It declares:
+  - **events:** the time columns, with labels;
+  - **conditions:** columns, type (categorical, ordinal or continuous), levels
+    and labels, and the derivations needed (e.g. IBL's signed contrast from two
+    columns, with its NaN convention);
+  - **comparisons:** which two-level comparisons are offered;
+  - **nulls:** the null for each comparison, as a permutation with its strata
+    declared. Pseudo-sessions apply only where a block generator is known, today
+    only IBL;
+  - **trial-structure variables:** what the no-spikes baseline (null_trialstruct)
+    may use, for decoding later;
+  - **behaviour:** the time series it uses, mapped from the file's own names;
+  - **trial filters:** the filters it offers.
+- **IBL becomes one built-in definition.** `analysis/events.py`, `conditions.py`,
+  `tuning.py`, `movement.py` and `trial_view.py` read definitions, with no
+  behaviour change.
+- **Choosing a definition:** Phy sessions and NWB files choose one when opened. A
+  definition whose columns are missing is refused in plain language, naming the
+  columns.
+- **Names:** the UI shows the task's own event and condition names everywhere,
+  including captions, exports and the project file.
+- **Tests first:**
+  - every existing test passes unchanged with the IBL definition;
+  - d23a44ef gives identical numbers before and after: PSTHs, split PSTHs, tuning,
+    responsiveness, selectivity, movement locking. The comparison is reported;
+  - a hand-built non-IBL trials table with its own definition works end to end;
+  - malformed definitions are refused.
+
+### Step 4. QC from spike times, for any source — planned
+
+Some sources have no QC labels (e.g. Steinmetz 2019 has no quality metrics).
+- **A source-independent rule, from spike times only:**
+  - **Metrics:** task-period firing rate, the existing refractory-violation metric
+    and presence ratio, with thresholds in `configs/`.
+  - **Amplitudes:** spike amplitudes aren't stored, so amplitude-based metrics are
+    declared unavailable.
+- **Sources with their own labels keep them:** the IBL label, Phy group or NWB
+  quality columns. Both verdicts are shown side by side.
+- **The default rule per source goes in `configs/`.** IBL's signed-off default is
+  not changed. The report says how far the IBL label and spike-time QC agree on the
+  robustness-pass sessions, for the user to decide.
+- **Tests:**
+  - each metric against a hand-computed spike train;
+  - a source with no labels uses the spike-time rule;
+  - agreement reporting.
+
+### Step 5. General NWB intake, proven on Steinmetz et al. 2019 (DANDI 000017) — planned
+
+- **Read a declared subset of NWB:** the units table (spike times, and quality
+  columns if present), the trials table, behaviour time series, and unit or
+  electrode locations if present.
+- **The capability report (`nwb/probe.py`):** each file states what it supports.
+  Anything outside the subset is refused with the reason, never guessed.
+- **A Steinmetz task definition.**
+- **Regions:**
+  - **Names:** from the file's own location names.
+  - **3D view and levels:** the 3D view and the Allen/Beryl/Cosmos levels are
+    enabled only when the names or coordinates are Allen CCF, and disabled with the
+    reason otherwise.
+- **The proof:** one Steinmetz session end to end, from homepage to open; every
+  view works or refuses with a stated reason, with screenshots of each.
+- **Tests first:**
+  - a small NWB file written with pynwb inside the test, mapped field by field;
+  - the capability report on it;
+  - refusals for an unsupported layout.
+
+### Step 6. Allen Brain Observatory Visual Coding (Neuropixels) — planned
+
+A passive task: stimulus presentations instead of decision trials, and many
+stimulus conditions (e.g. orientation, spatial frequency).
+- **Find the source:** verify which DANDI dandiset or source holds it, and propose
+  one session with sizes. Wait for the user's OK before downloading.
+- **Its task definition,** with stimulus presentations playing the role of trials.
+- **Tuning:** curves over many levels. An orientation-selectivity style summary
+  only if it carries a null and correction.
+- **No choice:** everything without a choice must work, or be refused with its
+  reason (selectivity on choice, movement controls).
+- **The proof:** as in step 5, every view, with screenshots.
+
+### Step 7. A dataset without the Allen mouse atlas — planned
+
+- **Choose the dataset:** propose 2–3 candidates (e.g. rat or monkey recordings on
+  DANDI with a trials table), with sizes and why each is a good test. Wait for the
+  user's choice.
+- **The proof:** everything works without an atlas, and atlas-only features are
+  disabled with the reason.
+
+### Step 8. Decoding, trajectories and region summaries, for any task — planned
+
+The earlier specs, written against task definitions from the start. Each is its own
+step, in this order, proven on IBL plus at least one other dataset:
+- **Decoding:**
+  - the six-row contract;
+  - the no-spikes baseline uses the task definition's trial-structure variables;
+  - splits come from the registry, never random time points;
+  - balanced accuracy and AUROC.
+- **Population trajectories:** PCA fit on odd trials and projected on even ones,
+  with PC names only (R5).
+- **Region summaries:** only for datasets with regions. Sessions are the unit of
+  inference, with FDR across regions.
+
+### Step 9. Guided workflow recipes (no AI) — planned
+
+As specified in S8 below, with three changes:
+- **Each recipe declares the task features it needs** (events, condition types).
+  It is offered only where the task has them, with the reason shown otherwise.
+- **Wording first:** three recipes' wording is drafted for the user's approval
+  before the UI is built.
+- **An analysis log** in the project file.
+
+### Plan only, don't build yet
+
+What each needs is listed under "Not to build yet" below:
+- **(a)** Phy clock sync and channel locations;
+- **(b)** the installer;
+- **(c)** an AI layer over recipes, bound by CLAUDE.md §6;
+- **(d)** unit browsing extras.
+
+## Earlier sequence (2026-10-01): S1–S8 — S1–S5 built, S6–S8 replaced
 
 The user's plan from here. The steps are named S1–S8 so they don't clash with the
 numbered plan steps below; each says which plan step it covers.
@@ -197,7 +348,7 @@ slow. The input is a session set from the homepage.
     sessions;
   - re-running gives identical results.
 
-### S6. Unit browsing (plan step 11) — planned
+### S6. Unit browsing (plan step 11) — replaced: its extras are plan only, (d) below
 
 - **Search:** units by id or region.
 - **Keyboard:** up/down arrows move through the unit table and update every view.
@@ -210,7 +361,7 @@ slow. The input is a session set from the homepage.
   - a project round trip keeps pins and tags;
   - switching session clears pins.
 
-### S7. User-defined tasks — planned
+### S7. User-defined tasks — replaced by step 3 of the current sequence
 
 Today, events and conditions are hard-coded to IBL's trial columns, so other labs
 must rename their columns to IBL's.
@@ -233,7 +384,7 @@ must rename their columns to IBL's.
   - a hand-built non-IBL trials table with its own definition works end to end;
   - malformed and missing-column definitions are refused in plain language.
 
-### S8. Guided workflow recipes (no AI) — planned
+### S8. Guided workflow recipes (no AI) — replaced by step 9 of the current sequence
 
 A recipe is a sequence of analyses that answers one scientific question. Recipes
 are files in the repo (YAML plus Markdown), one per question.
@@ -292,6 +443,14 @@ are files in the repo (YAML plus Markdown), one per question.
   - **a decision first:** a hosted model would send results off the machine, which
     the local-only rule in CLAUDE.md §2 forbids unless a decision records otherwise
     (a local model, or explicit consent per use).
+- **(d) Unit browsing extras (from S6):**
+  - search units by id or region;
+  - up/down arrows move through the unit table and update every view;
+  - pin a unit, and compare two units side by side;
+  - tags and notes per unit, saved in the project file, which are user input, not
+    results;
+  - tests: search, keyboard order following the table's sort, a project round trip
+    keeping pins and tags, and switching session clearing pins.
 
 ## 1. Import Kilosort / Phy folders — done (2026-09-30)
 
