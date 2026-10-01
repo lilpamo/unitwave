@@ -6,6 +6,224 @@ the prototype's rule: the UI computes nothing itself. It loads through `data/`
 and `qc/`, gets every number from `unitwave/analysis/` and draws through
 `viz/`.
 
+## Current sequence (2026-10-01): S1–S8, in order
+
+The user's plan from here. The steps are named S1–S8 so they don't clash with the
+numbered plan steps below; each says which plan step it covers.
+
+**After each step:**
+- run the full test suite, and preview UI steps in the browser pane with
+  screenshots;
+- mark the step built here, with any differences from the plan, and record it in
+  DECISIONS.md;
+- stage, report and stop.
+
+On "commit it, go on", commit and start the next step. A step never starts with
+the previous one uncommitted.
+
+**Rules for every step:**
+- Tests first where the contract is clear. Array shapes are in docstrings and
+  asserted.
+- About 400 new lines at most before running something.
+- The UI computes nothing: numbers come from `analysis/`, figures from `viz/`.
+- Every label is a claim, with a null and a multiple-testing correction (R4, §5).
+  Descriptive views say they make no claim.
+- Missing data is excluded and counted, never filled in.
+- Every new dependency gets a DECISIONS.md line.
+- A step needing changes to `preprocess/` or `splits/` stops and asks first (§10).
+
+### S1. Robustness pass (no new features) — planned
+
+- **Sessions:** about 8 BWM sessions from the catalog that differ from d23a44ef:
+  - one probe only;
+  - a Neuropixels 2.0 multi-shank probe, if the release has one;
+  - missing pose or wheel, and missing events;
+  - a cortical-only session and a deep-structure-only session;
+  - the largest and smallest unit counts.
+- **Exercise every view and test,** each session opened through the homepage:
+  - the unit table, rasters and PSTHs, split PSTHs and tuning;
+  - responsiveness, selectivity and movement controls;
+  - the trial view, unit quality and correlograms;
+  - the 3D view and probe strip;
+  - project save and reopen, and export.
+- **Fixes:** each bug gets a test first, built from the real case that exposed it.
+- **Report:** a table of session, what was tried, what failed and the fix. Each
+  view is timed on the largest session, listing anything slower than 2 s.
+
+### S2. Prior-art audit (docs only) — planned
+
+- **Where:** a section "F. Post-sorting analysis apps" in `docs/PRIOR_ART.md`.
+- **Verification:** each tool is checked against its current docs or repo and
+  marked [V] verified or [A] assumed.
+- **Tools:**
+  - CellExplorer, NeuroExplorer, IBL's public data viewer, Neurosift;
+  - Phy, the SpikeInterface GUI, sortingview;
+  - Pynapple (and any GUI it now has), Elephant, brainrender, Urchin;
+  - any newer tool found.
+- **For each:** what it does, data formats, statistical tests with nulls and
+  multiple-testing correction, atlas and 3D support, reproducibility features,
+  licence and language.
+- **Then:** a comparison matrix, and an honest novelty assessment for UnitWave
+  Studio, like the existing sections.
+
+### S3. Decoding in Studio (plan step 10) — planned
+
+Single-session decoding in the GUI, with the parked decoding code (`splits/`,
+`evaluation/`, `models/baselines/`). The modules touched are stated before
+starting.
+- **Targets:** choice, stimulus side, block and movement state, from the
+  filtered units (probe, region node, QC).
+- **The §5 decoding contract:** every row that applies to one session is
+  reported, and the page says which rows don't apply and why (`baseline_rrr` is
+  multi-session).
+- **Block:** uses the leave-one-block-out split and the pseudo-session null.
+- **Splits:** splits come from the registry (R1), never random time points (R2).
+  Normalisation is fit on training data only (R3).
+- **Plain verdicts:** the page says plainly when a result does not beat
+  `null_trialstruct` ("not decoding") or `baseline_ridge`.
+- **Class imbalance:** balanced accuracy and AUROC, never raw accuracy alone.
+- **Runs:** logged to `runs/` with the §7 manifest. Long runs show progress and
+  don't block the other views.
+- **Test first:** the GUI path gives the same table as the CLI path on the same
+  session and config.
+
+### S4. Population trajectories (plan step 9) — mostly built (229cd58)
+
+The engine, the cross-validation and both tests are already in place: plan step 9
+below.
+- **Built as specified:**
+  - PCA on condition-split PSTHs of the filtered units;
+  - normalisation and components fit on odd trials, with even trials projected;
+  - 2D and 3D views with the event marked;
+  - tests for planted low-dimensional structure and for a fit that never touches
+    the displayed half.
+- **Differences left to do:**
+  - Components are named `pc_1` (the plan's R5 reading), not PC1, and their
+    variance explained is in the caption, not on the axes.
+  - The caption doesn't give both trial counts; the legend gives them per
+    condition.
+
+### S5. Across-session region summaries (plan step 12) — planned
+
+The engine goes in `analysis/summary.py`, with a CLI entry point because it is
+slow. The input is a session set from the homepage.
+- **Per region,** at the chosen level (Beryl by default): the fraction of
+  responsive, selective or movement-locked units.
+- **Never only the pooled fraction (§5):** the per-session distribution is always
+  shown, with n sessions and n units per region.
+- **The null for region-level claims:** sessions are the unit of inference. Either
+  region labels permuted across units within each session, or a mixed model with
+  session as a random effect; DECISIONS.md records which.
+- **Correction:** FDR across regions.
+- **Minimum:** regions below a minimum number of sessions (in `configs/`) are
+  refused, with the reason shown.
+- **A Swanson flatmap,** from iblatlas.
+- **Results:** written to `runs/<run_id>/` with a manifest (git SHA, config hashes,
+  the session set and its hash). The app reads them.
+- **Tests first:**
+  - aggregation checked against a hand-built two-session example;
+  - the per-session distribution is present;
+  - a region below the minimum is refused;
+  - the region null stays calibrated when units are pooled unevenly across
+    sessions;
+  - re-running gives identical results.
+
+### S6. Unit browsing (plan step 11) — planned
+
+- **Search:** units by id or region.
+- **Keyboard:** up/down arrows move through the unit table and update every view.
+- **Compare:** pin a unit, and compare two units side by side.
+- **Tags and notes** per unit, saved in the project file. They are user input,
+  not results, and the project module's docstring says so.
+- **Tests first:**
+  - search;
+  - keyboard order follows the table's sort;
+  - a project round trip keeps pins and tags;
+  - switching session clears pins.
+
+### S7. User-defined tasks — planned
+
+Today, events and conditions are hard-coded to IBL's trial columns, so other labs
+must rename their columns to IBL's.
+- **A task definition file** per task, YAML in `configs/tasks/`. It declares:
+  - events: the trials-table columns holding times, with labels;
+  - conditions: columns, type (categorical, ordinal or continuous), levels and
+    labels;
+  - which two-level comparisons are offered;
+  - the null for each comparison: a permutation, with strata declared in the file.
+    The pseudo-session null exists only for IBL's block generator.
+- **IBL becomes one built-in definition.** `analysis/events.py` and
+  `analysis/conditions.py` are refactored to read definitions, with no behaviour
+  change.
+- **Choosing a definition:** a Phy session, or an NWB file with a trials table,
+  picks its task definition when opened. A definition whose columns are missing is
+  refused, naming the columns.
+- **Tests first:**
+  - with the IBL definition, every existing test passes unchanged, and d23a44ef
+    gives identical numbers before and after (PSTHs, responsiveness, selectivity);
+  - a hand-built non-IBL trials table with its own definition works end to end;
+  - malformed and missing-column definitions are refused in plain language.
+
+### S8. Guided workflow recipes (no AI) — planned
+
+A recipe is a sequence of analyses that answers one scientific question. Recipes
+are files in the repo (YAML plus Markdown), one per question.
+- **Each step in a recipe states:**
+  - the question it answers;
+  - why this analysis answers it, in plain language;
+  - which analysis and parameters;
+  - the null and correction it uses;
+  - its prerequisites;
+  - how to read the result, including what it would NOT show.
+- **Three recipes for the IBL task.** Their wording is drafted for the user's
+  approval before the UI is built:
+  - "Which units respond to the stimulus beyond the movement that follows it?"
+    (responsiveness → movement controls → late-movement-only test);
+  - "Does activity carry choice information beyond the stimulus?" (split PSTHs →
+    conditional selectivity → decoding vs `null_trialstruct`);
+  - "How do regions differ in their responses?" (region summaries across a
+    session set).
+- **The UI:** a Recipes panel. Each step shows its rationale and a "Run analysis"
+  button that calls the same engine as the manual views. Results show the null,
+  `n_tests` and trial counts.
+- **An analysis log,** designed in DECISIONS.md:
+  - the project file records every test run in the project (what, when,
+    `n_tests`), and the app shows the running total;
+  - results are marked exploratory unless they ran on a held-out set of sessions
+    named before they were run.
+- **Tests first:**
+  - a recipe runs the same functions with the same parameters as the manual
+    views, with identical numbers;
+  - the analysis log counts every test;
+  - a malformed recipe is refused.
+
+### Not to build yet: what each would need
+
+- **(a) Phy clock sync and channel-location import (plan step 13):**
+  - a sync source shared by the probe and the behaviour (a TTL or sync channel, or
+    IBL-style sync files);
+  - a fitted clock mapping between them, with its residuals reported and a
+    refusal above a tolerance;
+  - channel locations from a histology or alignment file, giving regions per site
+    and so per unit;
+  - tests on a hand-built drifting clock, and on a known alignment.
+- **(b) The installer (plan step 14), and safe use by colleagues:**
+  - one command that installs a pinned environment and the app, with three.js
+    already in the repo and the Allen meshes fetched once;
+  - a launcher that serves on 127.0.0.1 only and opens the browser;
+  - a first-run data-folder setup;
+  - documentation that colleagues each run their own copy, rather than anyone
+    exposing the server: it has no authentication, by design.
+- **(c) An AI layer over recipes, bound by CLAUDE.md §6:**
+  - it reads result files only, and may propose and explain analyses and write
+    prose;
+  - every number it writes traces to a result file, enforced by a test like
+    `tests/test_agent_no_invention.py`;
+  - it never runs a test the analysis log doesn't count;
+  - **a decision first:** a hosted model would send results off the machine, which
+    the local-only rule in CLAUDE.md §2 forbids unless a decision records otherwise
+    (a local model, or explicit consent per use).
+
 ## 1. Import Kilosort / Phy folders — done (2026-09-30)
 
 Built as planned, with these differences (`docs/DECISIONS.md`, "Phy import and
