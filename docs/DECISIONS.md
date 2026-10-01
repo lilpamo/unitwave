@@ -6,6 +6,52 @@ first.
 
 ---
 
+### 2026-10-01 — Brand artwork in Studio: the user's SVG set (`unitwave/studio/static/brand/`, `docs/brand/`)
+
+**What (the user's request):** the user's "UnitWave Studio App Brand Assets", a
+vector set made for the app (app icon with and without glow, light and dark navbar
+lockups, light and dark splash screens, the ribbon mark). It replaced a first pass
+with raster versions of the same artwork, at the user's request. It is used as
+follows:
+- **Tab and top bar:** the flat app icon is the browser-tab icon on both pages,
+  with PNG fallbacks, and a 24 px mark before the "UnitWave Studio" wordmark in the
+  top bar. The wordmark stays text.
+- **Homepage header:** the summary card opens with the navbar lockup in the
+  theme's version, 88 px high.
+- **Opening a session:** the theme's splash screen shows while a session loads
+  (seconds), with the progress panel below it.
+- **README:** opens with the navbar lockup, light or dark to match GitHub's theme.
+
+**Choices:**
+- **The masters are used as drawn**, kept in `docs/brand/source/` with their README.
+  `docs/brand/make_assets.py` derives what the app serves:
+  - **Navbar lockups:** only their viewBox is cropped. The artwork fills x 43–745,
+    y 27–169 of a 1200 × 240 canvas, measured in the browser, with room left for
+    the glow.
+  - **Icon PNGs:** icon-32 and icon-180 are rendered from the masters by macOS
+    QuickLook, with corners cut to the icon's own rounded square (rx 218 of 1024).
+    Safari's home-screen icon must be PNG.
+- **Flat icon for small sizes:** the flat icon is used at 32 px and below, where
+  the glow blurs; the detailed one is used for the 180 px PNG.
+- **Fonts:** the SVGs ask for Inter, then Arial. An `<img>` can't load web fonts,
+  so the lettering uses the first one installed, Arial on this machine.
+- **Theme switching:** light and dark versions follow the page's theme, including
+  the manual Light and Dark buttons, through two tokens set alongside the colour
+  tokens (`--only-light`, `--only-dark`).
+- **Loading screen layout:** a column, so a short window shrinks the splash rather
+  than putting the panel over its tagline.
+- **Figures and exports stay unbranded:** they are scientific output.
+- **Safety:** a test checks that every served SVG has no script, foreignObject or
+  outside link. The masters had none.
+
+**Bugs found on the way:**
+- `.card img { display: block }` outranked the theme rule, so both versions
+  showed at once. The rule now uses a doubled class.
+- The first splash layout could cover the tagline in short windows.
+
+**No new dependency:** the build script uses Pillow and NumPy (installed with
+matplotlib) and QuickLook (macOS). The app imports none of them.
+
 ### 2026-10-01 — S4 trajectories finished: variance on the axes, both trial counts (`viz/studio_plots.py`, `studio/server.py`)
 
 **What (the user's step S4):** the two differences between plan step 9 and what was

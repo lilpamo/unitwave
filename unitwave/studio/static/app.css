@@ -6,6 +6,8 @@
   --line: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,0.10);
   --accent: #2a78d6; --accent-wash: #cde2fb; --fail: #d03b3b;
   --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Brand artwork comes in a light and a dark version; these show the theme's one. */
+  --only-light: block; --only-dark: none;
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
@@ -14,6 +16,7 @@
     --ink: #ffffff; --ink2: #c3c2b7; --muted: #898781;
     --line: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
     --accent: #3987e5; --accent-wash: #1c3558; --fail: #e66767;
+    --only-light: none; --only-dark: block;
   }
 }
 :root[data-theme="dark"] {
@@ -22,6 +25,7 @@
   --ink: #ffffff; --ink2: #c3c2b7; --muted: #898781;
   --line: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
   --accent: #3987e5; --accent-wash: #1c3558; --fail: #e66767;
+  --only-light: none; --only-dark: block;
 }
 
 * { box-sizing: border-box; }
@@ -33,7 +37,10 @@ input[type=number] { width: 60px; }
 input[type=number], select { background: var(--surface); border: 1px solid var(--axis); border-radius: 6px; padding: 3px 6px; }
 
 .topbar { display: flex; align-items: center; gap: 16px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
-.brand { font-weight: 700; font-size: 15px; } .brand span { font-weight: 400; color: var(--ink2); }
+.brand { font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px; } .brand span { font-weight: 400; color: var(--ink2); }
+.brand img { width: 24px; height: 24px; flex: none; }
+/* Doubled class: outranks element rules such as .card img { display: block }. */
+.only-light.only-light { display: var(--only-light); } .only-dark.only-dark { display: var(--only-dark); }
 .source { color: var(--ink2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .spacer { flex: 1; }
 

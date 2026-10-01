@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>UnitWave Studio · Choose data</title>
+<link rel="icon" type="image/svg+xml" href="/static/brand/unitwave-app-icon-flat.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/brand/icon-32.png">
+<link rel="apple-touch-icon" href="/static/brand/icon-180.png">
 <link rel="stylesheet" href="/static/app.css">
 <link rel="stylesheet" href="/static/home.css">
 <script type="importmap">
@@ -12,7 +15,7 @@
 </head>
 <body>
 <header class="topbar">
-  <div class="brand">UnitWave <span>Studio</span></div>
+  <div class="brand"><img src="/static/brand/unitwave-app-icon-flat.svg" alt="">UnitWave <span>Studio</span></div>
   <div class="source">Choose data</div>
   <div class="spacer"></div>
   <a class="btn" id="backToSession" href="/session" hidden>Back to the open session</a>
@@ -47,9 +50,15 @@
   </aside>
 
   <main>
-    <section class="card counts">
-      <div class="big" id="counts">Loading the session catalog…</div>
-      <p class="note" id="unitsNote"></p>
+    <section class="card counts hero">
+      <div class="lockup">
+        <img class="only-light" src="/static/brand/unitwave-navbar-light.svg" alt="UnitWave Studio: neural data, from signals to insight" width="732" height="172">
+        <img class="only-dark" src="/static/brand/unitwave-navbar-dark.svg" alt="UnitWave Studio: neural data, from signals to insight" width="732" height="172">
+      </div>
+      <div class="summary">
+        <div class="big" id="counts">Loading the session catalog…</div>
+        <p class="note" id="unitsNote"></p>
+      </div>
     </section>
 
     <div class="homegrid">
@@ -94,7 +103,11 @@
   </main>
 </div>
 
-<div class="loading" id="loading" hidden><div class="panel"><div class="spinner"></div><p id="loadingText">Loading…</p></div></div>
+<div class="loading" id="loading" hidden>
+  <img class="only-light" src="/static/brand/unitwave-splash-light.svg" alt="">
+  <img class="only-dark" src="/static/brand/unitwave-splash-dark.svg" alt="">
+  <div class="panel"><div class="spinner"></div><p id="loadingText">Loading…</p></div>
+</div>
 <script type="module" src="/static/home.js"></script>
 </body>
 </html>

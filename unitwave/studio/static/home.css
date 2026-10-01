@@ -8,6 +8,10 @@
 .trialfilters .lbl { color: var(--muted); display: inline-block; width: 80px; }
 main { display: grid; gap: 12px; align-content: start; }
 .counts .big { font-size: 20px; font-weight: 600; }
+/* The header card: the theme's brand lockup, then the catalog summary. */
+.hero { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 28px; padding: 14px 16px; }
+.hero .lockup img { height: 88px; width: auto; }
+.hero .summary { flex: 1 1 280px; }
 .counts .note { margin-top: 4px; }
 .area-sessions .table { max-height: calc(100vh - 360px); }
 th.sortable { cursor: pointer; user-select: none; }
@@ -15,8 +19,16 @@ th.sortable:hover { color: var(--ink); }
 th[aria-sort] { color: var(--ink); }
 td .dot { color: var(--accent); }
 tbody tr td.open-cell { text-align: right; }
-.loading { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: grid; place-items: center; z-index: 20; }
-.loading .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px 28px; text-align: center; min-width: 300px; }
+/* Opening a session takes seconds: the theme's splash fills the screen meanwhile, on
+   its own background colour, with the progress panel always below it (a column, so
+   a short window shrinks the splash instead of putting the panel over it). */
+.loading { position: fixed; inset: 0; background: #ffffff; display: flex; flex-direction: column; align-items: center; padding-bottom: 6vh; z-index: 20; }
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .loading { background: #090d18; }
+}
+:root[data-theme="dark"] .loading { background: #090d18; }
+.loading img { flex: 1 1 auto; min-height: 0; width: 100%; object-fit: contain; }
+.loading .panel { flex: none; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 28px; text-align: center; min-width: 300px; }
 .spinner { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent); margin: 0 auto 10px; animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }

@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="unitwave/studio/static/brand/unitwave-navbar-dark.svg">
+    <img src="unitwave/studio/static/brand/unitwave-navbar-light.svg" alt="UnitWave Studio: neural data, from signals to insight" width="420">
+  </picture>
+</p>
+
 # UnitWave Studio
 
 A local app for analysis after spike sorting. Load sorted Neuropixels units with
