@@ -17,7 +17,7 @@ from unitwave.data.session import TRIAL_TIME_FIELDS
 
 TARGETS_VERSION = 1
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "targets.yaml"
-WINDOW_TARGETS = ("block", "choice")
+WINDOW_TARGETS = ("block", "choice", "stimulus_side")
 
 
 @dataclass(frozen=True)

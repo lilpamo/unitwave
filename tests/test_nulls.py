@@ -215,6 +215,24 @@ def test_block_null_never_sees_the_current_trial_or_its_label():
     np.testing.assert_array_equal(changed[0], features[5])
 
 
+def test_stimulus_side_null_sees_the_block_prior_but_never_the_current_stimulus():
+    # S3: within a biased block the stimulus is on the prior's side 80% of the time, so
+    # the prior is the task's own prediction of the side; spikes must beat it.
+    features, names = trial_trialstruct_features(_session(), _trial_target("stimulus_side"), CFG)
+    assert names[-1] == "block_prior" and "signed_contrast" not in names
+    assert features.shape == (N_TRIALS, 3 * 10 + 1)
+    col = {n: i for i, n in enumerate(names)}
+    assert features[5, col["block_prior"]] == pytest.approx(0.8)
+    # Trial 5's own stimulus, choice and reward don't reach its row.
+    current = _trials()
+    current.loc[5, ["contrastLeft", "contrastRight"]] = [np.nan, 1.0]
+    current.loc[5, ["choice", "feedbackType"]] = [1.0, -1.0]
+    changed = trial_trialstruct_features(
+        _session(current), _trial_target("stimulus_side", [5]), CFG
+    )[0]
+    np.testing.assert_array_equal(changed[0], features[5])
+
+
 def test_rows_follow_the_targets_trials():
     features, _ = trial_trialstruct_features(_session(), _trial_target("choice", [3, 7]), CFG)
     full, _ = trial_trialstruct_features(_session(), _trial_target("choice"), CFG)

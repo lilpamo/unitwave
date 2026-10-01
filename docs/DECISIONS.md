@@ -6,6 +6,106 @@ first.
 
 ---
 
+### 2026-10-01 — S3 decoding in Studio (`analysis/decoding.py`, `evaluation/single_session.py`, `configs/studio_decoding.yaml`, stimulus-side target)
+
+**What (the user's step S3, plan step 10):**
+- **Where it lives:** a Decoding section in the rail and a Decoding tab in the
+  Population card.
+- **Targets:** choice, stimulus side, block or movement state, decoded from the
+  shown units of one IBL session.
+- **A background job:** with progress; other views keep working, and a reload picks
+  the run back up.
+- **Logged:** each run goes to `runs/<run_id>/` with the §7 manifest (git SHA, seed,
+  config hashes, preprocessing and target fingerprints, split hash, the units
+  used), the split, the contract's files and `single_session.json`.
+
+**Decisions signed off by the user (2026-10-01, in chat):**
+1. **Single-session verdicts** (`evaluation/single_session.py`). The contract's
+   verdict is a Wilcoxon test across at least 5 sessions, so one session never
+   gets one. Instead:
+   - **vs null_shuffle and null_pseudosession:** the model's AUROC ranked among the
+     null refits, p = (1 + #draws ≥ model) / (1 + #draws). Studio asks for 100
+     shifts (`configs/studio_decoding.yaml`); the cross-session runs keep 20.
+   - **vs null_trialstruct and baseline_ridge:** a paired bootstrap over whole test
+     trials of the AUROC difference, 2,000 resamples, each fold resampled within
+     itself, scored per fold and averaged, as the contract does.
+   - **Correction:** Benjamini–Hochberg across the session's comparisons (4; 5 for
+     block). A comparison beats its row when q < 0.05 and the difference is
+     positive.
+   - **Calibration:** two equally good synthetic predictors, 400 simulations per
+     setting, 30–150 trials of 1–20 bins each. P(p < 0.05) was 0.035–0.062.
+     P(p < 0.01) reached 0.020, slightly liberal far in the tail.
+2. **Stimulus side:** a new target, 0–100 ms after stimulus onset (the Brain Wide
+   Map window).
+   - **Labels:** 1 for left, 0 for right.
+   - **0% contrast:** those trials show nothing, so they are excluded and counted
+     (`TrialTarget.excluded`).
+   - **Versioning:** adding a window changes the targets fingerprint.
+     TARGETS_VERSION is unchanged, since no existing target's output changes.
+3. **IBL sessions only.** A Phy folder has no session manifest for the split
+   registry, and a single-session path would change `splits/` (§10). The page says
+   so.
+
+**Choices made in building it, flagged for review:**
+- **Trial-structure null for stimulus side:** the current trial's block prior plus
+  the previous 10 trials' side, choice and reward, never the current stimulus.
+  Within a biased block, 80% of stimuli are on the prior's side, so the prior
+  predicts the side well: AUROC 0.84 on b22f694e. Spikes must beat that.
+- **Rows shown as the same:** ceiling_within equals the model, because the split
+  is within-session. baseline_ridge equals the model, being the same logistic
+  decoder with no deep model run. That comparison says it can't show a difference.
+- **baseline_rrr is not run:** it is multi-session by design. The contract now
+  accepts it left out only with a stated reason, and the CLI is unchanged.
+- **Units:** the shown units that pass `configs/qc.yaml`, the page's own QC.
+  Shown units failing it are excluded and counted.
+- **"Responsive only" is refused:** responsiveness was tested on every trial,
+  including the decoder's test trials, so units chosen by it would let test data
+  pick the units. Region, probe and QC filters don't depend on the decoded trials.
+- **Trials:** each target's own definition (BWM inclusion, a label), not the
+  page's trial filters, and the page says so.
+- **Shifts:** a session may allow fewer than asked. Choice on d23a44ef allows 91,
+  since its 290 trials and the 100-trial minimum leave shifts of 100–190. The rank
+  test uses those, and the page says how many.
+- **One run at a time.** The result lives in the server until restart; the run
+  folder keeps everything.
+
+**Code shared with the CLI:**
+- **`cli/evaluate.py`:** gains `build_splits`, `evaluate_target` and `write_target`,
+  which Studio calls too. The CLI's behaviour is unchanged (its tests pass).
+- **The test that matters:** on d23a44ef, Studio's per-session table equals the
+  CLI's for the same session, units, split and seed.
+- **`evaluation/contract.py`:** keeps each real-label row's test predictions, calls
+  `progress(done, total)`, and takes `not_run`.
+- **`evaluation/data.py`:** takes `unit_ids` and has `sample_trials`.
+- **R2:** a hand-built random trial split is refused on Studio's path.
+
+**Real data:**
+- **d23a44ef, choice** (390 units, mostly hindbrain and cerebellum):
+  - AUROC: model 0.979, null_trialstruct 0.948, null_shuffle median 0.476.
+  - Verdicts: beats the shuffle (q = 0.044) but not the trial structure, so the
+    gate is not passed: not decoding beyond the task. This matches
+    `docs/NEGATIVE_RESULTS.md`.
+- **d23a44ef, movement state:** model AUROC 0.979 against null_trialstruct 0.695.
+  It beats every null (q ≤ 0.013) and passes the gate.
+- **d23a44ef, block:**
+  - AUROC: model 0.417 (3 leave-one-block-out folds), within the pseudo-session
+    null (median 0.512; rank p = 0.79). Not decoding.
+  - Shifts: only 25 exist for this session.
+- **d23a44ef, stimulus side:** model AUROC 0.525, about chance, plausible for these
+  regions.
+- **b22f694e, stimulus side from 96 visual-cortex units:**
+  - AUROC: model 0.61, shuffle median 0.49, null_trialstruct 0.84.
+  - Units: 4 shown units fail QC, excluded and counted.
+  - Verdicts: spikes add nothing beyond the block prior.
+- **Time, one session, defaults, Intel Core i7-9750H, 6 cores:**
+  - choice: 140 s;
+  - stimulus side: 102 s (45 s for 96 units);
+  - movement state: 59 min, part of it alongside a test run, so about 45 min
+    alone;
+  - block: 8 min.
+
+**No new dependency.**
+
 ### 2026-10-01 — S2 prior-art audit: post-sorting analysis apps (`docs/PRIOR_ART.md` §F)
 
 **What (the user's step S2):**

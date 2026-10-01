@@ -103,7 +103,24 @@ unchanged. Differences from the plan:
 - **Then:** a comparison matrix, and an honest novelty assessment for UnitWave
   Studio, like the existing sections.
 
-### S3. Decoding in Studio (plan step 10) — planned
+### S3. Decoding in Studio (plan step 10) — built (2026-10-01)
+
+Built (`docs/DECISIONS.md`, "S3 decoding in Studio"). Differences from the plan,
+the first three signed off in chat:
+- **Verdicts are within-session.** The model is ranked among 100 shifted-target
+  refits (and the pseudo-sessions for block). A paired bootstrap over test trials
+  compares it with null_trialstruct and baseline_ridge, with BH across the
+  comparisons. The contract's across-session test needs 5 sessions.
+- **Stimulus side is a new target:** 0–100 ms after stimulus onset, with 0%
+  contrast excluded and counted. Its trial-structure null includes the block
+  prior, which predicts the side well.
+- **IBL sessions only.** Phy folders need a single-session split in `splits/`.
+- **baseline_rrr is not run;** the page says why. ceiling_within and
+  baseline_ridge are the model itself, and are marked so.
+- **Run times on one session:** choice 2–3 min, stimulus side 1–2 min, movement
+  state about 45–60 min, block 8 min. Runs go in the background with progress.
+
+**The plan:**
 
 Single-session decoding in the GUI, with the parked decoding code (`splits/`,
 `evaluation/`, `models/baselines/`). The modules touched are stated before
@@ -789,7 +806,7 @@ within strata (as in step 5). Until that exists, no labels.
 - Cross-validated projection never uses held-out trials in the fit.
 - The page shows no labels.
 
-## 10. Decoding in Studio
+## 10. Decoding in Studio — built as S3 (2026-10-01)
 
 **Adds:**
 - **Scope:** decode a task variable from the selected units of one session

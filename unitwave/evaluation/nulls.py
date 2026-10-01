@@ -15,6 +15,9 @@ null_trialstruct: features from task variables only, never spikes:
   trials' stimulus side, choice and reward.
 - block: the previous trials' stimulus side, choice and reward only. Block is decoded
   from a pre-stimulus window, so the current stimulus is not available to it either.
+- stimulus side (S3): the current trial's block prior, the task's own prediction of
+  the side, plus the previous trials' stimulus side, choice and reward. Never the
+  current stimulus, which is the target.
 
 null_pseudosession (block only; adopted after the first table): labels from
 pseudo-sessions drawn from the task's own block generator, a seeded port of IBL's
@@ -259,15 +262,20 @@ def trial_trialstruct_features(
     if target.eid != session.eid:
         raise ValueError(f"target is for {target.eid}, the session is {session.eid}")
     name = target.name.split(":")[0]
-    if name not in ("choice", "block"):
+    if name not in ("choice", "block", "stimulus_side"):
         raise ValueError(f"no trial-structure null is defined for {name}")
     trials = session.trials
     history, names = _history(trials, config.history_trials)
     blocks = [history]
+    prior = trials["probabilityLeft"].to_numpy(np.float64)
     if name == "choice":
-        prior = trials["probabilityLeft"].to_numpy(np.float64)
         blocks.append(np.column_stack([_signed_contrast(trials), prior]))
         names = [*names, "signed_contrast", "block_prior"]
+    elif name == "stimulus_side":
+        # The block prior is the task's own prediction of the side (S3); the current
+        # stimulus is the target, so it is never a feature.
+        blocks.append(prior[:, None])
+        names = [*names, "block_prior"]
     rows = target.table["trial"].to_numpy(np.int64)
     features = np.hstack(blocks)[rows].astype(np.float32)
     assert features.shape == (len(rows), len(names))

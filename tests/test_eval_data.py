@@ -183,6 +183,44 @@ def test_context_rules():
         SplitData(SPLIT, "choice", context_bins=10, load=SESSIONS.__getitem__)
 
 
+def test_a_unit_subset_decodes_only_those_units_and_counts_qc_failures():
+    # S3: Studio decodes from the shown units. A shown unit that fails unit QC is not
+    # binned for decoding; it is left out and counted, never silently used.
+    sessions = dict(SESSIONS)
+    failing = SESSIONS["e0"].units.copy()
+    failing.loc["p_3", "acronym"] = "root"  # QC excludes root
+    sessions["e0"] = dataclasses.replace(SESSIONS["e0"], units=failing)
+    provider = SplitData(
+        SPLIT, "choice", load=sessions.__getitem__, unit_ids={"e0": ["p_1", "p_3"]}
+    )
+    d = provider.data("e0", "test")
+    assert d.z.shape[0] == 1 and list(d.units.index) == ["p_1"]
+    assert provider.units_excluded == {"e0": ["p_3"]}
+    # Sessions not named keep every QC-passing unit.
+    assert provider.data("e1", "test").z.shape[0] == 4
+    with pytest.raises(ValueError, match="no unit"):
+        SplitData(SPLIT, "choice", load=sessions.__getitem__, unit_ids={"e0": ["p_3"]})
+    with pytest.raises(ValueError, match="not in"):
+        SplitData(SPLIT, "choice", load=sessions.__getitem__, unit_ids={"e0": ["zz"]})
+
+
+def test_samples_are_grouped_into_their_trials():
+    # Trial targets: each sample is its own trial (from the target table, even when a
+    # window ends before its trial starts). Per-bin targets: the trial whose start is
+    # the last at or before the bin.
+    choice_provider = _provider("choice")
+    d = choice_provider.data("e0", "test")
+    table = choice_provider._prepared["e0"].target.table.set_index("end_bin")
+    np.testing.assert_array_equal(
+        choice_provider.sample_trials("e0", d.ends), table.loc[d.ends, "trial"].to_numpy()
+    )
+    wheel = _provider("wheel_velocity")
+    d = wheel.data("e0", "test")
+    starts = np.floor(SESSIONS["e0"].trials["intervals_0"].to_numpy() * 50).astype(int)
+    expected = np.searchsorted(starts, d.ends, side="right") - 1
+    np.testing.assert_array_equal(wheel.sample_trials("e0", d.ends), expected)
+
+
 def test_the_guard_runs():
     stale = dataclasses.replace(SPLIT, preproc={"fingerprint": "0" * 64, "bin_ms": 20})
     with pytest.raises(ValueError, match="preprocessing"):
@@ -195,23 +233,23 @@ def test_the_contract_runs_end_to_end_on_the_provider(target):
     provider = _provider(target)
     if target == "wheel_velocity":
         chunks = cfg.per_bin_chunks
-        rows = dict(
-            model=lambda: RidgeDecoder(chunks, cfg.cv),
-            model_with_task=lambda: SpikesAndTaskRidge(chunks, cfg.cv, ratios=(0.1, 10.0)),
-            baseline_ridge=lambda: RidgeDecoder(chunks, cfg.cv),
-            baseline_rrr=lambda: RRRRegression(chunks, cfg.cv),
-            trialstruct=lambda: TrialStructureRidge(cfg.cv),
-        )
+        rows = {
+            "model": lambda: RidgeDecoder(chunks, cfg.cv),
+            "model_with_task": lambda: SpikesAndTaskRidge(chunks, cfg.cv, ratios=(0.1, 10.0)),
+            "baseline_ridge": lambda: RidgeDecoder(chunks, cfg.cv),
+            "baseline_rrr": lambda: RRRRegression(chunks, cfg.cv),
+            "trialstruct": lambda: TrialStructureRidge(cfg.cv),
+        }
     else:
-        rows = dict(
-            model=lambda: LogisticDecoder(cfg.trial_chunks, cfg.cv),
-            model_with_task=lambda: SpikesAndTaskLogistic(
+        rows = {
+            "model": lambda: LogisticDecoder(cfg.trial_chunks, cfg.cv),
+            "model_with_task": lambda: SpikesAndTaskLogistic(
                 cfg.trial_chunks, cfg.cv, ratios=(0.1, 10.0)
             ),
-            baseline_ridge=lambda: LogisticDecoder(cfg.trial_chunks, cfg.cv),
-            baseline_rrr=lambda: RRRClassification(provider.context_bins, cfg.cv),
-            trialstruct=lambda: TrialStructureLogistic(cfg.cv),
-        )
+            "baseline_ridge": lambda: LogisticDecoder(cfg.trial_chunks, cfg.cv),
+            "baseline_rrr": lambda: RRRClassification(provider.context_bins, cfg.cv),
+            "trialstruct": lambda: TrialStructureLogistic(cfg.cv),
+        }
     result = evaluate(provider, ceiling=None, seed=0, n_shifts=5, **rows)
     assert tuple(result.summary().index)[-3:] == ("model", "model_with_task", "ceiling_within")
     assert result.ceiling_is_model and len(result.per_session["model"]) == len(EIDS)
@@ -290,13 +328,15 @@ def test_the_contract_scores_leave_one_block_out_folds_separately():
     cfg = load_baseline_config()
     provider = SplitData(LOBO, "block", load=SESSIONS.__getitem__)
     provider.pseudo_sessions = False  # 40-trial fixtures are all inside IBL's 90 unbiased trials
-    rows = dict(
-        model=lambda: LogisticDecoder(cfg.trial_chunks, cfg.cv),
-        model_with_task=lambda: SpikesAndTaskLogistic(cfg.trial_chunks, cfg.cv, ratios=(0.1, 10.0)),
-        baseline_ridge=lambda: LogisticDecoder(cfg.trial_chunks, cfg.cv),
-        baseline_rrr=lambda: RRRClassification(provider.context_bins, cfg.cv),
-        trialstruct=lambda: TrialStructureLogistic(cfg.cv),
-    )
+    rows = {
+        "model": lambda: LogisticDecoder(cfg.trial_chunks, cfg.cv),
+        "model_with_task": lambda: SpikesAndTaskLogistic(
+            cfg.trial_chunks, cfg.cv, ratios=(0.1, 10.0)
+        ),
+        "baseline_ridge": lambda: LogisticDecoder(cfg.trial_chunks, cfg.cv),
+        "baseline_rrr": lambda: RRRClassification(provider.context_bins, cfg.cv),
+        "trialstruct": lambda: TrialStructureLogistic(cfg.cv),
+    }
     result = evaluate(provider, ceiling=None, seed=0, n_shifts=5, **rows)
     assert result.n_folds == 2 and result.ceiling_is_model
     # Every usable block trial whose window fits its fold is tested once, each fold scored

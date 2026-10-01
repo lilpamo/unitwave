@@ -473,3 +473,93 @@ def test_trajectories_on_real_data_are_descriptive(tmp_path):
     sidecar = json.loads((out / "trajectories.json").read_text())
     assert len(sidecar["units"]) == 390 and len(sidecar["components"]) == 390
     assert {"trajectories.svg", "trajectories.pdf"} <= {p.name for p in out.iterdir()}
+
+
+def _wait(studio, until, seconds=5.0):
+    import time
+
+    end = time.time() + seconds
+    while time.time() < end:
+        status = studio.decode_status({})
+        if until(status):
+            return status
+        time.sleep(0.02)
+    raise AssertionError(f"timed out; last status {status}")
+
+
+def test_decoding_refuses_a_phy_folder_plainly(tmp_path):
+    studio = _studio(tmp_path)
+    info = studio.session_json({})["decoding"]
+    assert info["available"] is False and "Brain Wide Map" in info["why"]
+    assert [t["id"] for t in info["targets"]] == [
+        "choice",
+        "stimulus_side",
+        "block",
+        "movement_state",
+    ]
+    with pytest.raises(ValueError, match="Brain Wide Map"):
+        studio.decode_start({"target": "choice", "query": {"all": "1"}}, manifest=None)
+    assert studio.decode_status({})["state"] == "idle"
+
+
+def test_a_decoding_job_runs_in_the_background_with_progress(tmp_path, monkeypatch):
+    import threading
+    from types import SimpleNamespace
+
+    from unitwave.studio import server
+    from unitwave.studio.project import Source
+
+    studio = _studio(tmp_path)
+    studio.source = Source(kind="ibl", eid="e", backend="bwm")  # past the BWM gate
+    release, calls = threading.Event(), {}
+
+    def fake_decode(eid, target, *, unit_ids, cfg, manifest, load, progress):
+        calls.update(eid=eid, target=target, unit_ids=list(unit_ids), manifest=manifest)
+        progress("fitting", 3, 10)
+        release.wait(5)
+        return SimpleNamespace(summary=lambda: {"target": target, "run": "r1"})
+
+    monkeypatch.setattr(server, "decode", fake_decode)
+    with pytest.raises(ValueError, match="not a Studio decoding target"):
+        studio.decode_start({"target": "wheel_velocity", "query": {}}, manifest="m")
+    started = studio.decode_start({"target": "choice", "query": {"all": "1"}}, manifest="m")
+    assert started["state"] == "running" and started["target"] == "choice"
+    status = _wait(studio, lambda s: s.get("done") == 3)
+    assert status["total"] == 10 and status["stage"] == "fitting" and status["elapsed_s"] >= 0
+    with pytest.raises(ValueError, match="already running"):
+        studio.decode_start({"target": "block", "query": {}}, manifest="m")
+    release.set()
+    done = _wait(studio, lambda s: s["state"] == "done")
+    assert done["summary"] == {"target": "choice", "run": "r1"}
+    # The shown units at the moment of the request were decoded.
+    assert calls["unit_ids"] == list(studio._select({"all": "1"})) and calls["manifest"] == "m"
+
+
+def test_decoding_refuses_units_chosen_by_responsiveness(tmp_path, monkeypatch):
+    # Responsiveness is tested on every trial, the decoder's test trials included, so
+    # units chosen by it would let test data pick the units: refused, not run.
+    from unitwave.studio import server
+    from unitwave.studio.project import Source
+
+    studio = _studio(tmp_path)
+    studio.source = Source(kind="ibl", eid="e", backend="bwm")
+    monkeypatch.setattr(server, "decode", lambda *a, **k: pytest.fail("decode ran"))
+    with pytest.raises(ValueError, match="Responsive only"):
+        studio.decode_start({"target": "choice", "query": {"responsive": "1"}}, manifest="m")
+    assert studio.decode_status({})["state"] == "idle"
+
+
+def test_a_failed_decoding_job_says_why(tmp_path, monkeypatch):
+    from unitwave.studio import server
+    from unitwave.studio.project import Source
+
+    studio = _studio(tmp_path)
+    studio.source = Source(kind="ibl", eid="e", backend="bwm")
+
+    def refuse(*args, **kwargs):
+        raise ValueError("e: 2 biased blocks; leave-one-block-out needs 4")
+
+    monkeypatch.setattr(server, "decode", refuse)
+    studio.decode_start({"target": "block", "query": {"all": "1"}}, manifest="m")
+    status = _wait(studio, lambda s: s["state"] == "error")
+    assert "leave-one-block-out needs 4" in status["error"]

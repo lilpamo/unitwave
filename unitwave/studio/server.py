@@ -14,6 +14,10 @@ import dataclasses
 import json
 import mimetypes
 import re
+import sys
+import threading
+import time
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
@@ -58,6 +62,7 @@ from unitwave.analysis.correlograms import (
     jitter_expected_ccg,
     load_correlogram_config,
 )
+from unitwave.analysis.decoding import decode, load_decoding_config
 from unitwave.analysis.events import EVENTS, available_events, event_times, trial_event_times
 from unitwave.analysis.movement import (
     load_movement_config,
@@ -129,6 +134,7 @@ from unitwave.studio.project import (
     saving_path,
 )
 from unitwave.studio.sets import list_sets, read_set, save_set, set_path
+from unitwave.targets.config import load_target_config
 from unitwave.viz.studio_plots import (
     THEMES,
     TraceGroup,
@@ -205,6 +211,10 @@ class Studio:
         self.probes = sorted(self.units["probe"].unique())
         # (event, all units, probe, trial filter) -> result: BH ran over exactly that set.
         self._tests: dict[tuple, pd.DataFrame] = {}
+        # Decoding (S3): one background job at a time; the page polls decode_status.
+        self.decode_cfg = load_decoding_config()
+        self._decode_lock = threading.Lock()
+        self._decode: dict = {"state": "idle"}
 
     def _test_key(self, q: dict) -> tuple:
         """A result belongs to one event, unit set, probe and trial filter."""
@@ -299,6 +309,7 @@ class Studio:
                     list(self.movement_cfg.post_window),
                 ],
             },
+            "decoding": self._decoding_info(),
             "correlograms": {
                 "max_units": self.ccg_cfg.max_units,
                 "window_s": self.ccg_cfg.window_s,
@@ -452,6 +463,114 @@ class Studio:
                 None if tested_pairs is None else self._connections_summary(tested_pairs)
             ),
         }
+
+    def _decoding_info(self) -> dict:
+        """What the page offers for decoding, and why not when it can't."""
+        cfg, windows = self.decode_cfg, load_target_config().windows
+        ibl = self.source is not None and self.source.kind == "ibl" and self.source.backend == "bwm"
+
+        def label(target: str) -> str:
+            if target == "movement_state":
+                return "movement state (each 20 ms bin, from the second before it)"
+            w = windows[target]
+            anchor = {"stimOn_times": "stimulus onset", "firstMovement_times": "first movement"}
+
+            def ms(t: float) -> str:
+                return "0" if t == 0 else f"{'−' if t < 0 else '+'}{abs(t) * 1000:.0f}"
+
+            span = f"{ms(w.start_s)} to {ms(w.stop_s)} ms from {anchor[w.anchor]}"
+            extra = "; 0% contrast trials excluded" if target == "stimulus_side" else ""
+            return f"{target.replace('_', ' ')} ({span}{extra})"
+
+        return {
+            "available": ibl,
+            "why": (
+                ""
+                if ibl
+                else (
+                    "Decoding needs a Brain Wide Map session: splits come from the split "
+                    "registry, built on the release's session manifest, which a Phy folder lacks."
+                )
+            ),
+            "targets": [{"id": t, "label": label(t)} for t in cfg.targets],
+            "train_fraction": cfg.train_fraction,
+            "gap_s": cfg.gap_s,
+            "leave_one_block_out": list(cfg.leave_one_block_out),
+            "n_shifts": cfg.n_shifts,
+            "n_bootstrap": cfg.n_bootstrap,
+            "alpha": cfg.alpha,
+        }
+
+    def decode_start(self, body: dict, manifest) -> dict:
+        """Start decoding body["target"] from the units shown by body["query"], in the
+        background (analysis.decoding). One run at a time."""
+        if self.source is None or self.source.kind != "ibl" or self.source.backend != "bwm":
+            raise ValueError(
+                "decoding needs a Brain Wide Map session: splits come from the split "
+                "registry, which is built on the release's session manifest, and a Phy "
+                "folder has none yet"
+            )
+        target = body.get("target")
+        if target not in self.decode_cfg.targets:
+            raise ValueError(
+                f"{target!r} is not a Studio decoding target: one of {list(self.decode_cfg.targets)}"
+            )
+        q = {k: str(v) for k, v in (body.get("query") or {}).items()}
+        if q.get("responsive") == "1":
+            raise ValueError(
+                "decoding can't use 'Responsive only': responsiveness was tested on every "
+                "trial, the decoder's test trials included, so units chosen by it would let "
+                "test data pick the units. Untick it to decode"
+            )
+        shown = list(self._select(q))
+        with self._decode_lock:
+            if self._decode["state"] == "running":
+                raise ValueError("a decoding run is already running; wait for it to finish")
+            self._decode = {
+                "state": "running",
+                "target": target,
+                "stage": "starting",
+                "done": 0,
+                "total": 1,
+                "started": time.time(),
+                "n_units_shown": len(shown),
+            }
+        threading.Thread(
+            target=self._decode_job, args=(target, shown, manifest), daemon=True
+        ).start()
+        return self.decode_status({})
+
+    def _decode_job(self, target: str, shown: list, manifest) -> None:
+        def progress(stage: str, done: int, total: int) -> None:
+            with self._decode_lock:
+                self._decode.update(stage=stage, done=done, total=total)
+
+        try:
+            run = decode(
+                self.session.eid,
+                target,
+                unit_ids=shown,
+                cfg=self.decode_cfg,
+                manifest=manifest,
+                load=lambda eid: self.session,
+                progress=progress,
+            )
+            update = {"state": "done", "summary": run.summary()}
+        except ValueError as e:  # a plain refusal, e.g. too few biased blocks
+            update = {"state": "error", "error": str(e)}
+        except Exception as e:  # noqa: BLE001 - a bug: plain words for the page, details in the log
+            traceback.print_exc(file=sys.stderr)
+            update = {"state": "error", "error": f"decoding failed ({type(e).__name__}: {e})"}
+        with self._decode_lock:
+            self._decode.update(update, finished=time.time())
+
+    def decode_status(self, q: dict) -> dict:
+        """The decoding job: idle, running (stage, done of total), done (summary) or error."""
+        with self._decode_lock:
+            status = dict(self._decode)
+        if "started" in status:
+            status["elapsed_s"] = round(status.get("finished", time.time()) - status["started"], 1)
+        return status
 
     def _pairs_key(self, q: dict) -> tuple:
         """A connections result belongs to exactly the units shown when it ran."""
@@ -1328,6 +1447,7 @@ _SESSION_ROUTES = {
     "/api/trial.png": ("image/png", "trial_png"),
     "/api/quality": ("application/json", "quality_json"),
     "/api/connections": ("application/json", "connections_json"),
+    "/api/decode/status": ("application/json", "decode_status"),
     "/api/pair": ("application/json", "pair_json"),
     "/api/pair.png": ("image/png", "pair_png"),
     "/api/trajectories": ("application/json", "trajectory_json"),
@@ -1359,6 +1479,7 @@ def make_handler(app: "App | Studio"):
         "/api/sets/open": app.open_set,
         "/api/project": lambda view: app.require().save(view),
         "/api/export": lambda view: app.require().export(view),
+        "/api/decode": lambda body: app.require().decode_start(body, app.manifest),
     }
 
     class Handler(BaseHTTPRequestHandler):

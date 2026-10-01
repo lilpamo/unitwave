@@ -38,11 +38,15 @@ result, and the shuffle, pseudo-session and ridge verdicts are printed too.
 Data reaches decoders as SessionData from a DataProvider, loaded lazily, one session
 at a time; decoders build their own inputs from it (e.g. windows via
 preprocess.windows).
+
+For single-session use (Studio, S3): the result keeps every real-label row's test
+predictions, which evaluation.single_session resamples; `progress` is told after each
+fit; and baseline_rrr, multi-session by design, may be left out with a stated reason.
 """
 
 import hashlib
 from collections.abc import Callable, Iterator, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Protocol
 
 import numpy as np
@@ -231,6 +235,9 @@ class ContractResult:
     pseudo: pd.DataFrame | None = None  # (n_test_sessions, n_pseudo) per pseudo-session
     n_pseudo: int = 0
     n_folds: int = 1
+    # row -> (n_test_samples, 5) eid, fold, end, y, prediction, for the real-label rows.
+    predictions: dict = field(default_factory=dict)
+    not_run: dict = field(default_factory=dict)  # row -> why it was not run
 
     @property
     def gate(self) -> Verdict:
@@ -257,13 +264,16 @@ class ContractResult:
             else ""
         )
         lines = [
-            f"Evaluation contract: {self.kind}, primary metric {self.primary} over test "
-            f"sessions (split {self.split_hash[:12]}, seed {self.seed}, {self.n_shifts} shifts"
-            f"{extra}{folds})",
+            (
+                f"Evaluation contract: {self.kind}, primary metric {self.primary} over test "
+                f"sessions (split {self.split_hash[:12]}, seed {self.seed}, "
+                f"{self.n_shifts} shifts{extra}{folds})"
+            ),
             table.to_string(float_format=lambda v: f"{v:.3f}"),
         ]
         if self.ceiling_is_model:
             lines.append("ceiling_within = model: the split is itself within-session.")
+        lines += [f"{row}: not run ({why})." for row, why in self.not_run.items()]
         lines += [v.line(self.primary) for v in self.verdicts]
         gate = self.gate
         lines.append(
@@ -312,20 +322,24 @@ def _mean_over_folds(tables: list[pd.DataFrame], kind: str) -> pd.DataFrame:
     return table
 
 
-def _run(factory, provider, kind, eval_config, seed, label_of=None, strip=False) -> pd.DataFrame:
+def _run(
+    factory, provider, kind, eval_config, seed, label_of=None, strip=False, keep=None
+) -> pd.DataFrame:
     """Fit on each fold's train partition, predict its test partition, and score each
     session: on its held-out predictions with one fold, or as the mean of its per-fold
     scores with several (never pooled; see the module docstring).
 
     label_of(eid) -> the data() keywords for the session's labels ({} for the real
     ones, {"shift": k}, {"pseudo": seed}), or _SKIP to leave the session out.
+    keep: a list to which each fold's test predictions are appended as a DataFrame
+    (eid, fold, end, y, prediction).
     """
     label_of = label_of or (lambda eid: {})
     test_eids = list(provider.split.partitions["test"])
     folds = _folds(provider)
     tables = []
-    for fold in folds:
-        ys, predictions, eids = [], [], []
+    for k, fold in enumerate(folds):
+        ys, predictions, eids, ends = [], [], [], []
         decoder = factory()
         if decoder.kind != kind:
             raise ValueError(f"a {decoder.kind} decoder cannot fit a {kind} target")
@@ -341,9 +355,22 @@ def _run(factory, provider, kind, eval_config, seed, label_of=None, strip=False)
             predictions.append(_check_predictions(data, decoder.predict(data), kind))
             ys.append(np.asarray(data.y, dtype=np.float64))
             eids.append(np.full(len(data.ends), eid, dtype=object))
+            ends.append(np.asarray(data.ends, dtype=np.int64))
         if eids:
             y, prediction, sessions = map(np.concatenate, (ys, predictions, eids))
             tables.append(per_session(kind, y, prediction, sessions, eval_config))
+            if keep is not None:
+                keep.append(
+                    pd.DataFrame(
+                        {
+                            "eid": sessions,
+                            "fold": k,
+                            "end": np.concatenate(ends),
+                            "y": y,
+                            "prediction": prediction,
+                        }
+                    )
+                )
     if not tables:
         return _undefined(kind, test_eids)
     if len(folds) == 1:
@@ -365,10 +392,12 @@ def _verdict(subject: pd.Series, other: pd.Series, row: str, name: str = "model"
     return Verdict(row, bool(beats), p, median, wins, n, subject=name)
 
 
-def _null_draws(factory, task, kind, eval_config, seed, draws: dict, keyword: str):
-    """Per draw k: every session with a k-th draw gets those labels; per-draw tables."""
+def _null_draws(factory, task, kind, eval_config, seed, draws: dict, keyword: str, step):
+    """Per draw k: every session with a k-th draw gets those labels; per-draw tables.
+    step() is called before each draw."""
     tables = []
     for k in range(max((len(d) for d in draws.values()), default=0)):
+        step()
 
         def label_of(eid, k=k):
             return {keyword: int(draws[eid][k])} if k < len(draws[eid]) else _SKIP
@@ -383,7 +412,7 @@ def evaluate(
     model: Callable[[], Decoder],
     model_with_task: Callable[[], Decoder],
     baseline_ridge: Callable[[], Decoder],
-    baseline_rrr: Callable[[], Decoder],
+    baseline_rrr: Callable[[], Decoder] | None,
     trialstruct: Callable[[], Decoder],
     ceiling: DataProvider | None,
     seed: int,
@@ -391,6 +420,8 @@ def evaluate(
     n_pseudo: int | None = None,
     eval_config: EvalConfig | None = None,
     null_config: NullConfig | None = None,
+    not_run: dict | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> ContractResult:
     """Fit and score every row; decoders are factories, called once per fit and fold.
 
@@ -398,6 +429,8 @@ def evaluate(
     task's split is itself within-session. n_shifts: shift draws for null_shuffle
     (default configs/nulls.yaml), at least MIN_SHIFTS. n_pseudo: pseudo-sessions for
     null_pseudosession, required (>= MIN_PSEUDO) when the provider generates them.
+    baseline_rrr may be None only with a reason in not_run["baseline_rrr"].
+    progress(done, total) is called before the first fit and after each row or draw.
     """
     eval_config = eval_config or load_eval_config()
     null_config = null_config or load_null_config()
@@ -408,6 +441,11 @@ def evaluate(
     if kind not in PRIMARY:
         raise ValueError(f"unknown target kind {kind!r}")
 
+    not_run = dict(not_run or {})
+    if baseline_rrr is None and not not_run.get("baseline_rrr"):
+        raise ValueError("baseline_rrr can be left out only with a reason in not_run")
+    if set(not_run) - {"baseline_rrr"} or (baseline_rrr is not None and not_run):
+        raise ValueError(f"not_run names rows that are run or can't be skipped: {sorted(not_run)}")
     pseudo = bool(getattr(task, "pseudo_sessions", False))
     if pseudo and (n_pseudo is None or n_pseudo < MIN_PSEUDO):
         raise ValueError(f"null_pseudosession needs at least {MIN_PSEUDO} pseudo-sessions")
@@ -427,12 +465,32 @@ def evaluate(
             raise ValueError("the ceiling must cover exactly the task's test sessions")
         assert_split_valid(ceiling.split, context_bins=ceiling.context_bins)
 
+    total = 4 + (baseline_rrr is not None) + n_shifts + (n_pseudo or 0) * pseudo
+    total += not ceiling_is_model
+    done = 0
+
+    def step():
+        nonlocal done
+        if progress is not None:
+            progress(done, total)
+        done += 1
+
     per: dict[str, pd.DataFrame] = {}
-    per["model"] = _run(model, task, kind, eval_config, seed)
-    per["model_with_task"] = _run(model_with_task, task, kind, eval_config, seed)
-    per["baseline_ridge"] = _run(baseline_ridge, task, kind, eval_config, seed)
-    per["baseline_rrr"] = _run(baseline_rrr, task, kind, eval_config, seed)
-    per["null_trialstruct"] = _run(trialstruct, task, kind, eval_config, seed, strip=True)
+    kept: dict[str, list] = {}
+    real_rows = {
+        "model": model,
+        "model_with_task": model_with_task,
+        "baseline_ridge": baseline_ridge,
+        "baseline_rrr": baseline_rrr,
+        "null_trialstruct": trialstruct,
+    }
+    for row, factory in real_rows.items():
+        if factory is None:
+            continue
+        step()
+        kept[row] = []
+        strip = row == "null_trialstruct"
+        per[row] = _run(factory, task, kind, eval_config, seed, strip=strip, keep=kept[row])
 
     split = task.split
     test_eids = list(split.partitions["test"])
@@ -445,8 +503,10 @@ def evaluate(
     shifts = {e: np.asarray(task.shifts(e, n_shifts, seed=_session_seed(seed, e))) for e in eids}
     for e in eids:
         shifts[e] = shifts[e][:n_shifts]
-    tables = _null_draws(model, task, kind, eval_config, seed, shifts, "shift")
-    tables += [_undefined(kind, test_eids)] * (n_shifts - len(tables))
+    tables = _null_draws(model, task, kind, eval_config, seed, shifts, "shift", step)
+    for _ in range(n_shifts - len(tables)):  # draws no session has still count
+        step()
+        tables.append(_undefined(kind, test_eids))
     per["null_shuffle"] = median_over(tables)
     shuffle = pd.concat([t[PRIMARY[kind]] for t in tables], axis=1, keys=range(n_shifts))
 
@@ -456,13 +516,16 @@ def evaluate(
             e: np.array([_session_seed(seed, f"{e}:pseudo:{k}") for k in range(n_pseudo)])
             for e in eids
         }
-        tables = _null_draws(model, task, kind, eval_config, seed, seeds, "pseudo")
+        tables = _null_draws(model, task, kind, eval_config, seed, seeds, "pseudo", step)
         per["null_pseudosession"] = median_over(tables)
         pseudo_table = pd.concat([t[PRIMARY[kind]] for t in tables], axis=1, keys=range(n_pseudo))
 
-    per["ceiling_within"] = (
-        per["model"] if ceiling_is_model else _run(model, ceiling, kind, eval_config, seed)
-    )
+    if ceiling_is_model:
+        per["ceiling_within"] = per["model"]
+    else:
+        step()
+        per["ceiling_within"] = _run(model, ceiling, kind, eval_config, seed)
+    step()  # done == total
     primary = PRIMARY[kind]
     verdicts = tuple(
         _verdict(per[subject][primary], per[row][primary], row, subject)
@@ -483,4 +546,8 @@ def evaluate(
         pseudo=pseudo_table,
         n_pseudo=n_pseudo or 0,
         n_folds=max(len(_folds(task)), 1),
+        predictions={
+            row: pd.concat(frames, ignore_index=True) for row, frames in kept.items() if frames
+        },
+        not_run=not_run,
     )

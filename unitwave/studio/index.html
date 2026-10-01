@@ -67,6 +67,13 @@
       <p class="note" id="connSummary"></p>
     </section>
     <section>
+      <h2>Decoding</h2>
+      <p class="note" id="decWhat"></p>
+      <select id="decTarget" aria-label="Variable to decode"></select>
+      <button class="btn" id="runDec">Decode from shown units</button>
+      <p class="note" id="decSummary" aria-live="polite"></p>
+    </section>
+    <section>
       <h2>Region level</h2>
       <div class="seg" id="level" role="group" aria-label="Region level"></div>
       <p class="note" id="levelNote"></p>
@@ -139,6 +146,7 @@
           <div class="seg tabs" id="popTabs" role="group" aria-label="Population view">
             <button data-tab="heatmap" aria-pressed="true">Heatmap</button>
             <button data-tab="trajectories" aria-pressed="false">Trajectories</button>
+            <button data-tab="decoding" aria-pressed="false">Decoding</button>
           </div>
         </header>
         <div id="heatmapPane">
@@ -154,6 +162,19 @@
           <p class="caption" id="trajCaption"></p>
           <img id="trajImg" alt="Population trajectories on principal components, shown on held-out trials">
           <p class="err" id="trajErr"></p>
+        </div>
+        <div id="decPane" hidden>
+          <p class="caption" id="decCaption">Not run yet: choose a variable under Decoding and run it.</p>
+          <p class="decgate" id="decGate"></p>
+          <div class="dectable">
+            <table>
+              <thead><tr><th>Row</th><th class="num">AUROC</th><th class="num">Bal. acc.</th><th class="num">Log loss</th><th class="num">ECE</th><th class="num" title="Test samples">n</th></tr></thead>
+              <tbody id="decRows"></tbody>
+            </table>
+          </div>
+          <p class="note" id="decRowNotes"></p>
+          <ul class="declines" id="decLines"></ul>
+          <p class="note" id="decNull"></p>
         </div>
       </section>
 

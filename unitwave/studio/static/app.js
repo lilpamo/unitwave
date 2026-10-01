@@ -86,6 +86,7 @@ async function init() {
   $('connWhat').textContent = `Spikes of each unit ${c.synaptic_window_s[0] * 1000}–${c.synaptic_window_s[1] * 1000} ms after the other's, ` +
     `against ${c.null} (an excess only: putative excitatory). Every pair of shown units, both directions, ` +
     `Benjamini–Hochberg across them, α = ${s.response.alpha}. At most ${c.max_units} units at once.`;
+  renderDecodingIntro(s.decoding);
   $('split').value = state.split;
   renderProbes();
   state.level = noRegion ? null : (s.levels.includes(v.level) ? v.level : s.default_level);
@@ -383,7 +384,7 @@ function selectUnit(id, { scroll = true } = {}) {
 }
 
 // ---------- plots (PNGs from viz/) ----------
-const latest = { unit: 0, pop: 0, tuning: 0, wheel: 0, trial: 0, quality: 0, qualityFacts: 0, pair: 0, pairFacts: 0, traj: 0 };
+const latest = { unit: 0, pop: 0, tuning: 0, wheel: 0, trial: 0, quality: 0, qualityFacts: 0, pair: 0, pairFacts: 0, traj: 0, decoding: 0 };
 async function fetchPlot(kind, url, img, caption, err) {
   const seq = ++latest[kind];
   const r = await fetch(url);
@@ -441,9 +442,11 @@ function showPopTab(tab, { plot = true } = {}) {
   for (const b of $('trajDims').querySelectorAll('button')) b.setAttribute('aria-pressed', +b.dataset.dims === state.trajDims);
   $('heatmapPane').hidden = tab !== 'heatmap';
   $('trajPane').hidden = tab !== 'trajectories';
+  $('decPane').hidden = tab !== 'decoding';
   if (plot) plotPop();
 }
 async function plotPop() {
+  if (state.popTab === 'decoding') return;  // the table is drawn when a run finishes
   if (state.popTab === 'trajectories') {
     fetchPlot('traj', '/api/trajectories.png?' + params({ traj_dims: state.trajDims }), $('trajImg'), $('trajCaption'), $('trajErr'));
     return;
@@ -521,6 +524,84 @@ function renderConnections(t) {
       : n < 2 ? 'Needs at least 2 units.' : 'Not run for these units.';
   }
 }
+// ---------- decoding ----------
+// The server decodes in the background (analysis/decoding.py); the page starts a run,
+// polls its progress and shows the table and verdicts it is sent.
+function renderDecodingIntro(d) {
+  $('decTarget').innerHTML = d.targets.map((t) => `<option value="${esc(t.id)}">${esc(t.label)}</option>`).join('');
+  $('decTarget').disabled = $('runDec').disabled = !d.available;
+  $('decWhat').textContent = !d.available ? d.why
+    : `Logistic regression on the shown units that pass QC, this session only. The first ${d.train_fraction * 100}% ` +
+      `of trials train and the rest test, after a ${d.gap_s} s gap (${d.leave_one_block_out.join(', ')}: leave-one-block-out). ` +
+      `Trials follow the variable's own definition, not the trial filters above; "Responsive only" can't be used. ` +
+      `Every row of the evaluation contract, ` +
+      `with verdicts tested in this session: ${d.n_shifts} shifted-target refits, a ${d.n_bootstrap}-resample bootstrap over ` +
+      `test trials, Benjamini–Hochberg at α = ${d.alpha}. Takes minutes.`;
+}
+const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+async function runDecoding() {
+  try {
+    const status = await post('/api/decode', { target: $('decTarget').value, query: Object.fromEntries(params()) });
+    followDecoding(status);
+  } catch (e) {
+    $('decSummary').textContent = e.message.replace(/^Cannot do this: /, '');
+  }
+}
+async function followDecoding(status) {
+  const seq = ++latest.decoding;
+  while (status.state === 'running') {
+    $('runDec').disabled = true;
+    const what = status.stage === 'bootstrap' ? 'Bootstrapping the comparisons'
+      : `Fitting ${status.done} of ${status.total}`;
+    $('decSummary').textContent = `Decoding ${status.target.replace('_', ' ')} from ${status.n_units_shown} shown units… ` +
+      `${what} · ${mmss(status.elapsed_s || 0)} elapsed. Other views keep working.`;
+    await new Promise((r) => setTimeout(r, 1000));
+    if (seq !== latest.decoding) return;
+    status = await getJSON('/api/decode/status');
+  }
+  $('runDec').disabled = !state.session.decoding.available;
+  if (status.state === 'error') $('decSummary').textContent = status.error;
+  if (status.state === 'done') {
+    renderDecoding(status.summary);
+    $('decSummary').textContent = `${status.summary.gate.line} Details in the Population card's Decoding tab.`;
+    showPopTab('decoding');
+  }
+}
+const metric = (v) => (v == null ? '—' : Number(v).toFixed(3));
+const nullRow = (row) => row === 'null_shuffle' || row === 'null_pseudosession';
+function renderDecoding(d) {
+  const label = state.session.decoding.targets.find((t) => t.id === d.target)?.label || d.target;
+  const split = d.split.kind === 'leave_one_block_out' ? `leave-one-block-out, ${d.split.n_folds} folds`
+    : `training block ${d.split.train_trials} trials, test block ${d.split.test_trials}, ${d.split.gap_s} s apart`;
+  const excluded = Object.entries(d.trials.excluded).map(([why, n]) => `${n} trials excluded (${why})`);
+  const dropped = Object.values(d.trials.dropped_windows).reduce((a, b) => a + b, 0);
+  $('decCaption').textContent = [
+    `${label} · ${d.units.used} units`,
+    d.units.excluded_failing_qc ? `${d.units.excluded_failing_qc} shown units fail QC and are left out` : null,
+    split, ...excluded,
+    dropped ? `${dropped} trial windows outside their partition, dropped` : null,
+  ].filter(Boolean).join(' · ');
+  $('decGate').textContent = d.gate.line;
+  // Rows equal to the model, or not run, are marked and explained under the table.
+  $('decRows').innerHTML = d.rows.map((r) =>
+    `<tr><td>${esc(r.row)}${r.same_as ? ' (= model)' : ''}</td><td class="num">${metric(r.auroc)}</td>` +
+    `<td class="num">${metric(r.balanced_accuracy)}</td><td class="num">${metric(r.log_loss)}</td>` +
+    `<td class="num">${metric(r.ece)}</td><td class="num">${nullRow(r.row) ? '—' : r.n_samples ?? '—'}</td></tr>`).join('') +
+    Object.keys(d.not_applicable).map((row) =>
+      `<tr><td>${esc(row)} (not run)</td>${'<td class="num">—</td>'.repeat(5)}</tr>`).join('');
+  $('decRowNotes').textContent = [
+    ...d.rows.filter((r) => r.same_as).map((r) => `${r.row} = model: ${r.same_as}.`),
+    ...Object.entries(d.not_applicable).map(([row, why]) => `${row} not run: ${why}.`),
+    'n: test trials (per-bin targets: test bins). Null rows show their median over the draws; how many draws this session allows is below.',
+  ].join(' ');
+  $('decLines').innerHTML = d.lines.map((l) => `<li>${esc(l)}</li>`).join('');
+  const used = (n, of, what) => (n === of ? `${n} ${what}` : `${n} ${what} (of ${of} asked; this session allows ${n})`);
+  $('decNull').textContent = `Null rows: ${used(d.null.n_shifts_used, d.null.n_shifts, 'target shifts')}` +
+    (d.null.n_pseudo ? `, ${used(d.null.n_pseudo_used, d.null.n_pseudo, 'pseudo-sessions')}` : '') +
+    ` · ${d.null.correction}, α = ${d.null.alpha} · seed ${d.null.seed} · split ${d.split.hash.slice(0, 12)} · ` +
+    `${mmss(d.seconds)} · logged in runs/${d.run}`;
+}
+
 async function runConnections() {
   const button = $('runConn');
   button.disabled = true;
@@ -944,6 +1025,7 @@ $('unitTabs').addEventListener('click', (e) => {
   if (b && b.dataset.tab !== state.unitTab) showUnitTab(b.dataset.tab);
 });
 $('runConn').addEventListener('click', runConnections);
+$('runDec').addEventListener('click', runDecoding);
 $('popTabs').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (b && b.dataset.tab !== state.popTab) showPopTab(b.dataset.tab);
@@ -969,4 +1051,7 @@ document.addEventListener('keydown', (e) => {
 $('popImg').addEventListener('click', (e) => { const hit = popRowAt(e); if (hit) selectUnit(hit.id); });
 
 try { const t = localStorage.getItem('studio-theme'); if (t && t !== 'auto') setTheme(t); } catch { /* ignore */ }
-init().catch((e) => { $('source').textContent = e.message; });
+init()
+  .then(() => getJSON('/api/decode/status'))  // a run started before a reload keeps going
+  .then((status) => { if (status.state !== 'idle') followDecoding(status); })
+  .catch((e) => { $('source').textContent = e.message; });

@@ -23,10 +23,15 @@ session's fold-k training and test trials, keeps a window only if it lies wholly
 one of that partition's intervals (others dropped and counted), and normalises with a
 Normalizer fit on that fold's training intervals. For block, `pseudo=seed` replaces
 the labels with a pseudo-session from IBL's generator (null_pseudosession).
+
+Studio (S3): `unit_ids` restricts a session to the units shown on the page. Only
+QC-passing units are binned, so a shown unit that fails QC is left out and listed in
+`units_excluded`. `sample_trials` maps test samples to their trials for the
+single-session bootstrap.
 """
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, replace
 
 import numpy as np
@@ -66,6 +71,7 @@ KINDS = {
     "movement_state": "classification",
     "choice": "classification",
     "block": "classification",
+    "stimulus_side": "classification",
 }
 PER_BIN = ("wheel_velocity", "movement_state")
 
@@ -101,6 +107,7 @@ class SplitData:
         preproc: PreprocConfig | None = None,
         targets: TargetConfig | None = None,
         nulls: NullConfig | None = None,
+        unit_ids: Mapping[str, Collection[str]] | None = None,
     ):
         if target not in KINDS:
             raise ValueError(f"unknown target {target!r}; one of {sorted(KINDS)}")
@@ -127,10 +134,13 @@ class SplitData:
         load = load or (lambda eid: load_session(eid, "bwm"))
 
         self._prepared: dict[str, _Prepared] = {}
+        self.units_excluded: dict[str, list[str]] = {}
         for eid in sorted(set().union(*split.partitions.values())):
             session = load(eid)
             binned = preprocess_session(session, self.preproc)
             units = apply_unit_qc(session, self.preproc.qc).units.loc[list(binned.unit_ids)]
+            if unit_ids is not None and eid in unit_ids:
+                binned, units = self._subset(session, binned, units, list(unit_ids[eid]))
             self._prepared[eid] = _Prepared(
                 _Trials(eid, session.trials), units, binned, self._build_target(session, binned)
             )
@@ -147,6 +157,38 @@ class SplitData:
             self.normalizer = fit_normalizer(split, binned, self.preproc)
             self.normalizers = [self.normalizer]
         self.dropped: dict[tuple[str, str], int] = {}
+
+    def _subset(self, session, binned: BinnedSpikes, units: pd.DataFrame, chosen: list):
+        """binned and units restricted to the chosen units that pass QC."""
+        unknown = [u for u in chosen if u not in session.units.index]
+        if unknown:
+            raise ValueError(f"{session.eid}: units not in the session: {unknown}")
+        wanted = set(chosen)
+        keep = [u for u in binned.unit_ids if u in wanted]
+        self.units_excluded[session.eid] = [u for u in chosen if u not in set(keep)]
+        if not keep:
+            raise ValueError(
+                f"{session.eid}: no unit of the {len(chosen)} chosen passes unit QC, so "
+                "there is nothing to decode from"
+            )
+        rows = [binned.unit_ids.index(u) for u in keep]
+        assert len(rows) == len(keep)
+        return replace(binned, unit_ids=tuple(keep), counts=binned.counts[rows]), units.loc[keep]
+
+    def sample_trials(self, eid: str, ends) -> np.ndarray:
+        """(n,) the trial (row of Session.trials) of each sample, by its window's end bin:
+        from the target's own table for trial targets; for per-bin targets, the last
+        trial starting at or before the bin."""
+        p = self._prepared[eid]
+        ends = np.asarray(ends, np.int64)
+        if self.target in PER_BIN:
+            rate = 1000 // p.binned.bin_ms
+            starts = p.trials.trials["intervals_0"].to_numpy(np.float64)
+            return np.searchsorted(np.floor(starts * rate).astype(np.int64), ends, "right") - 1
+        lookup = p.target.table.set_index("end_bin")["trial"]
+        if lookup.index.duplicated().any() or not np.isin(ends, lookup.index).all():
+            raise ValueError(f"{eid}: samples don't map one-to-one onto the target's trials")
+        return lookup.loc[ends].to_numpy(np.int64)
 
     def folds(self) -> list:
         """One provider per fold: [self] unless the split is leave_one_block_out."""

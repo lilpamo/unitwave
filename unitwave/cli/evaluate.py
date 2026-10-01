@@ -17,6 +17,10 @@ Also split.json. Per target, <target>/ holds:
 - metrics.json: every per-session metric, the summary, the verdicts and any dropped
   trials; the numbers any later report must trace back to;
 - per_session.parquet and shuffle.parquet.
+
+Studio (S3) decodes one session through the same functions: `build_splits`,
+`evaluate_target` and `write_target`, so its table is the CLI's for the same session,
+units, split and seed.
 """
 
 import argparse
@@ -28,7 +32,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -39,8 +43,8 @@ from unitwave.data.load import load_data_config, load_session
 from unitwave.data.manifest import Manifest, build_manifest
 from unitwave.evaluation.contract import ContractResult, evaluate
 from unitwave.evaluation.data import KINDS, PER_BIN, SplitData
-from unitwave.models.baselines.features import BaselineConfig, load_baseline_config
 from unitwave.evaluation.nulls import load_null_config
+from unitwave.models.baselines.features import BaselineConfig, load_baseline_config
 from unitwave.models.baselines.linear import (
     LogisticDecoder,
     RidgeDecoder,
@@ -51,12 +55,14 @@ from unitwave.models.baselines.linear import (
 )
 from unitwave.models.baselines.rrr import RRRClassification, RRRRegression
 from unitwave.preprocess.binning import PREPROC_VERSION, load_preproc_config
-from unitwave.splits.registry import leave_one_block_out, save_split, within_session
+from unitwave.splits.registry import leave_one_block_out as leave_one_block_out_split
+from unitwave.splits.registry import save_split, within_session
 from unitwave.targets.config import load_target_config
 
 REPO = Path(__file__).resolve().parents[2]
 CONFIG_FILES = ("qc", "preprocess", "targets", "nulls", "evaluation", "baselines")
 MODELS = ("ridge",)
+RRR_ONE_SESSION = "multi-session by design; it is not fit on one session"
 
 
 @dataclass(frozen=True)
@@ -123,28 +129,80 @@ def decoders(target: str, provider: SplitData, cfg: BaselineConfig) -> dict:
     jobs, ratios = cfg.n_jobs, cfg.task_penalty_ratios
     if target == "wheel_velocity":
         chunks = cfg.per_bin_chunks
-        return dict(
-            model=lambda: RidgeDecoder(chunks, cfg.cv, n_jobs=jobs),
-            model_with_task=lambda: SpikesAndTaskRidge(chunks, cfg.cv, ratios, n_jobs=jobs),
-            baseline_ridge=lambda: RidgeDecoder(chunks, cfg.cv, n_jobs=jobs),
-            baseline_rrr=lambda: RRRRegression(chunks, cfg.cv),
-            trialstruct=lambda: TrialStructureRidge(cfg.cv, n_jobs=jobs),
-        )
+        return {
+            "model": lambda: RidgeDecoder(chunks, cfg.cv, n_jobs=jobs),
+            "model_with_task": lambda: SpikesAndTaskRidge(chunks, cfg.cv, ratios, n_jobs=jobs),
+            "baseline_ridge": lambda: RidgeDecoder(chunks, cfg.cv, n_jobs=jobs),
+            "baseline_rrr": lambda: RRRRegression(chunks, cfg.cv),
+            "trialstruct": lambda: TrialStructureRidge(cfg.cv, n_jobs=jobs),
+        }
     chunks = cfg.per_bin_chunks if target in PER_BIN else cfg.trial_chunks
     rrr_chunks = cfg.per_bin_chunks if target in PER_BIN else provider.context_bins
-    return dict(
-        model=lambda: LogisticDecoder(chunks, cfg.cv, n_jobs=jobs),
-        model_with_task=lambda: SpikesAndTaskLogistic(chunks, cfg.cv, ratios, n_jobs=jobs),
-        baseline_ridge=lambda: LogisticDecoder(chunks, cfg.cv, n_jobs=jobs),
-        baseline_rrr=lambda: RRRClassification(rrr_chunks, cfg.cv),
-        trialstruct=lambda: TrialStructureLogistic(cfg.cv, n_jobs=jobs),
+    return {
+        "model": lambda: LogisticDecoder(chunks, cfg.cv, n_jobs=jobs),
+        "model_with_task": lambda: SpikesAndTaskLogistic(chunks, cfg.cv, ratios, n_jobs=jobs),
+        "baseline_ridge": lambda: LogisticDecoder(chunks, cfg.cv, n_jobs=jobs),
+        "baseline_rrr": lambda: RRRClassification(rrr_chunks, cfg.cv),
+        "trialstruct": lambda: TrialStructureLogistic(cfg.cv, n_jobs=jobs),
+    }
+
+
+def build_splits(manifest, trials, preproc, *, train_fraction, gap_s, leave_one_block_out=()):
+    """The within-session split of the sessions in trials, and the leave-one-block-out
+    one when any target uses it (else None)."""
+    split = within_session(manifest, trials, preproc, train_fraction=train_fraction, gap_s=gap_s)
+    lobo = None
+    if leave_one_block_out:
+        lobo = leave_one_block_out_split(manifest, trials, preproc, gap_s=gap_s)
+    return split, lobo
+
+
+def evaluate_target(
+    target: str,
+    split,
+    lobo_split,
+    *,
+    leave_one_block_out,
+    seed: int,
+    n_shifts: int,
+    train_stride: dict,
+    baselines: BaselineConfig,
+    load,
+    unit_ids=None,
+    rrr: bool = True,
+    progress=None,
+) -> tuple[ContractResult, SplitData]:
+    """Run the contract for one target; unit_ids, rrr and progress are Studio's."""
+    provider = SplitData(
+        lobo_split if target in leave_one_block_out else split,
+        target,
+        context_bins=baselines.per_bin_context_bins if target in PER_BIN else None,
+        train_stride=train_stride.get(target, 1) if target in PER_BIN else 1,
+        load=load,
+        unit_ids=unit_ids,
     )
+    rows = decoders(target, provider, baselines)
+    not_run = None
+    if not rrr:
+        rows["baseline_rrr"], not_run = None, {"baseline_rrr": RRR_ONE_SESSION}
+    nulls = load_null_config()
+    result = evaluate(
+        provider,
+        ceiling=None,
+        seed=seed,
+        n_shifts=n_shifts,
+        n_pseudo=nulls.n_pseudo_sessions if provider.pseudo_sessions else None,
+        not_run=not_run,
+        progress=progress,
+        **rows,
+    )
+    return result, provider
 
 
 def _git() -> dict:
     def git(*args):
         return subprocess.run(
-            ["git", *args], cwd=REPO, capture_output=True, text=True
+            ["git", *args], cwd=REPO, capture_output=True, text=True, check=False
         ).stdout.strip()
 
     return {
@@ -171,7 +229,7 @@ def _jsonable(value):
     return value
 
 
-def _write_target(out: Path, target: str, result: ContractResult, provider: SplitData, note: str):
+def write_target(out: Path, target: str, result: ContractResult, provider: SplitData, note: str):
     out.mkdir(parents=True, exist_ok=True)
     # R3: the normalisation statistics, fit on training data only, travel with the run
     # (one per fold for a leave_one_block_out split).
@@ -224,20 +282,23 @@ def run(
         load_baseline_config(),
     )
 
-    run_id = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}_{config.name}"
+    run_id = f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}_{config.name}"
     out = Path(runs_dir) / run_id
     out.mkdir(parents=True)
     eids = select_sessions(
         manifest, config.fixed_sessions, config.random_sessions, seed=config.seed
     )
     trials = {eid: load(eid).trials for eid in eids}
-    split = within_session(
-        manifest, trials, preproc, train_fraction=config.train_fraction, gap_s=config.gap_s
+    split, lobo_split = build_splits(
+        manifest,
+        trials,
+        preproc,
+        train_fraction=config.train_fraction,
+        gap_s=config.gap_s,
+        leave_one_block_out=config.leave_one_block_out,
     )
     save_split(split, out / "split.json")
-    lobo_split = None
-    if config.leave_one_block_out:
-        lobo_split = leave_one_block_out(manifest, trials, preproc, gap_s=config.gap_s)
+    if lobo_split is not None:
         save_split(lobo_split, out / "split_leave_one_block_out.json")
 
     config_files = {"run": Path(config_path)}
@@ -245,7 +306,7 @@ def run(
     run_manifest = {
         "run_id": run_id,
         "status": "running",
-        "created": datetime.now(timezone.utc).isoformat(),
+        "created": datetime.now(UTC).isoformat(),
         "command": " ".join(sys.argv),
         "git": _git(),
         "seed": config.seed,
@@ -279,25 +340,20 @@ def run(
         "model and baseline_ridge are the same decoder in this run (model: ridge), "
         "so the baseline_ridge verdict is vacuous."
     )
-    nulls = load_null_config()
     for target in config.targets:
         start = time.time()
-        provider = SplitData(
-            lobo_split if target in config.leave_one_block_out else split,
+        result, provider = evaluate_target(
             target,
-            context_bins=baselines.per_bin_context_bins if target in PER_BIN else None,
-            train_stride=config.train_stride.get(target, 1) if target in PER_BIN else 1,
-            load=load,
-        )
-        result = evaluate(
-            provider,
-            ceiling=None,
+            split,
+            lobo_split,
+            leave_one_block_out=config.leave_one_block_out,
             seed=config.seed,
             n_shifts=config.n_shifts,
-            n_pseudo=nulls.n_pseudo_sessions if provider.pseudo_sessions else None,
-            **decoders(target, provider, baselines),
+            train_stride=config.train_stride,
+            baselines=baselines,
+            load=load,
         )
-        _write_target(out / target, target, result, provider, note)
+        write_target(out / target, target, result, provider, note)
         run_manifest["targets"][target] = {
             "seconds": round(time.time() - start, 1),
             "split_hash": result.split_hash,
