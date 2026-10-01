@@ -64,7 +64,12 @@ main { padding: 12px 16px 24px; min-width: 0; }
   grid-template-areas: "table unit pop" "table brain brain" "trial trial trial"; }
 .area-table { grid-area: table; } .area-unit { grid-area: unit; } .area-pop { grid-area: pop; } .area-brain { grid-area: brain; } .area-trial { grid-area: trial; }
 @media (max-width: 1250px) { .grid { grid-template-columns: 1fr 1fr; grid-template-areas: "unit pop" "table brain" "trial trial"; } }
-@media (max-width: 800px) { .shell { grid-template-columns: 1fr; } .rail { position: static; height: auto; } .grid { grid-template-columns: 1fr; grid-template-areas: "unit" "pop" "trial" "brain" "table"; } }
+@media (max-width: 800px) {
+  .shell { grid-template-columns: 1fr; }
+  .topbar, .rail { position: static; }
+  .rail { height: auto; }
+  .grid { grid-template-columns: 1fr; grid-template-areas: "unit" "pop" "trial" "brain" "table"; }
+}
 
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; display: flex; flex-direction: column; }
 .card > header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
@@ -75,7 +80,18 @@ main { padding: 12px 16px 24px; min-width: 0; }
 .err { color: var(--fail); font-size: 12px; margin: 4px 0 0; white-space: pre-wrap; }
 .err:empty { display: none; }
 
-.table { overflow: auto; max-height: calc(100vh - 150px); margin: 0 -12px -12px; }
+.table { overflow: auto; margin: 0 -12px -12px; }
+/* The unit list fills the rest of its card and scrolls inside it. The card's height
+   comes from the grid rows it spans, set by the cards beside it; a zero flex basis
+   keeps a long list from stretching those rows. */
+.area-table .table { flex: 1 1 0; min-height: 0; }
+/* In one column the unit card is alone in its row, with no neighbour to size it: it
+   is at most one screen tall, and a short list keeps its own height. (After the rule
+   above, which it overrides.) */
+@media (max-width: 800px) {
+  .area-table { max-height: 100dvh; }
+  .area-table .table { flex: 0 1 auto; }
+}
 table { border-collapse: collapse; width: 100%; font-size: 12px; }
 th, td { padding: 4px 6px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
 th { position: sticky; top: 0; background: var(--surface); color: var(--muted); font-weight: 600; font-size: 11px; }
