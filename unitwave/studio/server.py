@@ -134,6 +134,7 @@ from unitwave.studio.project import (
     saving_path,
 )
 from unitwave.studio.sets import list_sets, read_set, save_set, set_path
+from unitwave.studio.summaries import list_summaries, read_summary
 from unitwave.targets.config import load_target_config
 from unitwave.viz.studio_plots import (
     THEMES,
@@ -150,6 +151,7 @@ from unitwave.viz.studio_plots import (
     unit_figure,
     wheel_figure,
 )
+from unitwave.viz.summary_plots import region_flatmap, region_spread
 
 HERE = Path(__file__).parent
 STATIC = HERE / "static"
@@ -1235,9 +1237,11 @@ class App:
         studio: Studio | None = None,
         manifest: Manifest | None = None,
         loader=load_source,
+        runs_dir: Path = RUNS,
     ):
         self.data = data
         self.studio = studio
+        self.runs_dir = Path(runs_dir)  # region-summary runs are read from here (S5)
         self.catalog_cfg = load_catalog_config()
         self._manifest = manifest
         self._loader = loader
@@ -1259,6 +1263,54 @@ class App:
 
     def _cached(self, eid: str) -> bool:
         return SessionCache(self.data.cache_root).path(key_parts(eid, "bwm")).exists()
+
+    def summaries(self, q: dict) -> list[dict]:
+        """Finished region-summary runs (cli.summarise), newest first."""
+        return list_summaries(self.runs_dir)
+
+    def summary_json(self, q: dict) -> dict:
+        """One summary run: its caption, regions with a claim, regions refused."""
+        m, regions, _ = read_summary(self.runs_dir, q.get("run", ""))
+        cfg = m["summary_config"]
+        failed = m["sessions_failed"]
+        refused = regions[regions["refused"] != ""]
+        left_out = f" ({len(failed)} left out: {'; '.join(sorted(set(failed.values())))})"
+        caption = (
+            f"{m['label_text']} · {m['level']} regions · {len(m['sessions_used'])} of "
+            f"{len(m['set']['eids'])} sessions of set '{m['set']['name']}'"
+            f"{left_out if failed else ''} · {m['n_units']} units · per region: labelled "
+            "units summed over sessions against the exact null with region labels permuted "
+            "within each session, two-sided, Benjamini–Hochberg across "
+            f"{m['n_tested']} region{'' if m['n_tested'] == 1 else 's'} with at least "
+            f"{cfg['min_sessions']} sessions, "
+            f"α = {cfg['alpha']} · {len(refused)} region{'' if len(refused) == 1 else 's'} "
+            f"refused (too few sessions) · run {m['run_id']}"
+        )
+
+        def rows(table):
+            out = table.reset_index()[
+                ["region", "n_sessions", "n_units", "observed", "expected", "q", "direction"]
+            ]
+            return _records(out.assign(q=out["q"].astype(float)))
+
+        claims = regions[regions["claim"]].sort_values("q")
+        return {
+            "caption": caption,
+            "claims": rows(claims),
+            "refused": rows(refused),
+            "n_tested": m["n_tested"],
+            "min_sessions": cfg["min_sessions"],
+        }
+
+    def summary_png(self, q: dict) -> tuple[bytes, dict]:
+        """A summary run's flatmap or per-session spread, in the page's theme."""
+        _, regions, sessions = read_summary(self.runs_dir, q.get("run", ""))
+        theme = q.get("theme", "light")
+        if q.get("kind") == "flatmap":
+            return region_flatmap(regions, theme), {}
+        if q.get("kind") == "spread":
+            return region_spread(regions, sessions, theme), {}
+        raise ValueError("choose flatmap or spread")
 
     def home_json(self, q: dict) -> dict:
         """Filter options, live counts, the region tree and the matching sessions."""
@@ -1347,7 +1399,7 @@ class App:
         return self.data.data_root / "sets"
 
     def sets(self, q: dict) -> dict:
-        return {"sets": list_sets(self.sets_dir)}
+        return {"sets": list_sets(self.sets_dir), "folder": str(self.sets_dir)}
 
     def save_set(self, body: dict) -> dict:
         path = save_set(
@@ -1463,7 +1515,11 @@ _APP_ROUTES = {
     "/api/phy/complete": "phy_complete",
     "/api/projects": "projects",
     "/api/sets": "sets",
+    "/api/summaries": "summaries",
+    "/api/summary": "summary_json",
 }
+# path -> App method returning (png, headers); no session needed.
+_APP_IMAGES = {"/api/summary.png": "summary_png"}
 _JSON_METHODS = {name for ctype, name in _SESSION_ROUTES.values() if ctype == "application/json"}
 
 
@@ -1510,6 +1566,9 @@ def make_handler(app: "App | Studio"):
                 if url.path in _APP_ROUTES:
                     body = json.dumps(getattr(app, _APP_ROUTES[url.path])(q)).encode()
                     return self._send(200, "application/json", body)
+                if url.path in _APP_IMAGES:
+                    body, headers = getattr(app, _APP_IMAGES[url.path])(q)
+                    return self._send(200, "image/png", body, headers)
                 if url.path.startswith("/static/") and (path := _static(url.path)):
                     ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
                     return self._send(200, ctype, path.read_bytes())

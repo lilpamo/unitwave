@@ -6,6 +6,82 @@ first.
 
 ---
 
+### 2026-10-01 — S5 region summaries across a session set (`analysis/summary.py`, `cli/summarise.py`, `configs/summary.yaml`, `viz/summary_plots.py`)
+
+**What (the user's step S5, plan step 12):** per region, at the Beryl level, across
+the sessions of a saved set: how many units are responsive, selective or
+movement-locked, against the session's other units.
+- **Command line:** `python -m unitwave.cli.summarise SET --label …` writes
+  `runs/<run_id>/`:
+  - the manifest (git SHA, config hashes, the set with its hash and trial filter,
+    the sessions used and those left out with why);
+  - the unit, region and per-session tables;
+  - the flatmap and spread figures.
+- **Homepage:** a Region summaries card shows finished runs: the caption, the
+  regions with a claim, and the flatmap and per-session spread in the page's
+  theme. It also gives the command for a chosen set.
+
+**The region null, and why** (the plan offered this or a mixed model; this is the
+choice):
+- **The null:** region labels permuted across a session's units, within each
+  session. Sessions are the strata.
+- **The statistic:** the region's labelled units summed over sessions. Under the
+  null each session's count is hypergeometric (its units, its labelled units, its
+  units in the region), and the sum's distribution is their convolution. It is
+  exact, with no seed. This is the exact stratified (Cochran–Mantel–Haenszel-type)
+  conditional test.
+- **p:** two-sided, twice the smaller tail. The direction says more or fewer than
+  expected.
+- **Correction:** BH across the regions with a verdict.
+- **Why not pooled:** the 1,000-simulation scenario below adds sessions where many
+  labelled units also contribute many of a region's units.
+  - **Pooled across sessions** (Fisher), the region is called enriched 100% of the
+    time.
+  - **Stratified**, P(p < 0.05) = 0.032 and P(p < 0.01) = 0.003: conservative, from
+    the discreteness and the doubling.
+- **A mixed model wasn't chosen:** it needs a fitting library and estimation
+  choices. The stratified test is exact and needs nothing new.
+
+**Signed off by the user (2026-10-01, in chat):**
+- **Minimum:** 5 sessions for a region to get a verdict (`configs/summary.yaml`).
+  Below it, the region is refused and the reason shown. Its per-session rows are
+  still listed.
+- **Swanson outlines:** `swansonpaths.json` (330 KB) downloaded once from IBL's
+  public S3 bucket into iblatlas's atlas cache.
+
+**Choices made in building it, flagged for review:**
+- **Labels are Studio's:**
+  - the same tests, on the QC-passing units of every probe, with BH across that
+    session's units;
+  - on the set's own trial filter;
+  - a test checks the labels equal Studio's on d23a44ef for all three kinds.
+- **Unassigned units:** a unit with no region at the level (`root`, `void`, none)
+  counts among its session's units, but is never a region.
+- **Left out, counted:** a session that can't be labelled (e.g. no wheel, for
+  locking) is left out, with the reason in the manifest and the caption.
+- **Effect size:** the flatmap colour is the labelled fraction minus the fraction
+  expected from the region's own sessions. The spread shows each session's fraction
+  minus that session's other units, and its median. Pooled numbers are never shown
+  alone (§5).
+- **The app computes nothing:** the CLI writes the tables, and the server draws
+  the figures from them in the page's theme. Run names are checked against the
+  run-name pattern, so a request can't reach outside `runs/`.
+
+**Real data:** responsive to stimulus onset, BWM inclusion, no-go trials excluded.
+- **The 9 S1 sessions** (2,653 units, 50 regions): they were picked to differ, so
+  no region has 5 sessions, and all 50 are refused, with the reason. Each session
+  took 0–15 s.
+- **8 sessions with the most CA1 units** (1,568 units, 32 regions):
+  - **CA1** (8 sessions, 514 units) is the only region with a verdict: 391
+    responsive against 380.7 expected from its sessions, p = 0.20, no claim. About
+    74% of units are responsive across these sessions.
+  - **The rest:** 31 regions refused. Each session took 4–20 s, loading included.
+- **A bug found:** with no region tested, iblatlas filled the map in its own atlas
+  colours, which read as results. It now draws the "no units" and "too few
+  sessions" fills only, with a test.
+
+**No new dependency:** iblatlas was already one (2026-09-28).
+
 ### 2026-10-01 — Brand artwork in Studio: the user's SVG set (`unitwave/studio/static/brand/`, `docs/brand/`)
 
 **What (the user's request):** the user's "UnitWave Studio App Brand Assets", a

@@ -1,0 +1,10 @@
+# Across-session region summaries (S5). Never change a value to make a region pass
+# (R6). See docs/DECISIONS.md, "S5 region summaries".
+
+# Region level the units are grouped at (analysis.atlas.LEVELS).
+level: Beryl
+# A region needs units in this many sessions for a verdict; below it, it is refused
+# and the reason shown (signed off by the user 2026-10-01).
+min_sessions: 5
+# Benjamini-Hochberg level across the regions with a verdict.
+alpha: 0.05

@@ -48,3 +48,9 @@ tbody tr td.open-cell { text-align: right; }
 .list .row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
 .list .row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 td.pick, th.pick { width: 24px; }
+
+/* Region summaries (S5): runs written on the command line, drawn by the server. */
+.summaries .field { justify-content: flex-start; }
+.summaries .field select { max-width: 100%; flex: 1; }
+.summaryfigs { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+@media (max-width: 1100px) { .summaryfigs { grid-template-columns: 1fr; } }

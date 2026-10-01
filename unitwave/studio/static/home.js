@@ -18,6 +18,7 @@ function setTheme(v) {
   for (const b of $('theme').querySelectorAll('button')) b.setAttribute('aria-pressed', b.dataset.v === v);
   try { localStorage.setItem('studio-theme', v); } catch { /* storage may be unavailable */ }
   if (state.probes) drawOverview(state.probes);
+  if ($('summaryRun') && $('summaryRun').value) drawSummary();
 }
 function theme() {
   const t = document.documentElement.dataset.theme;
@@ -183,6 +184,8 @@ async function loadProjects() {
 }
 async function loadSets() {
   const d = await (await fetch('/api/sets')).json();
+  state.setsFolder = d.folder;
+  summaryHow();
   $('setList').length = 1;
   for (const s of d.sets) {
     const old = s.file.endsWith('.unitwave-set.json') ? '' : ', old file ending';
@@ -253,7 +256,54 @@ $('setOpen').addEventListener('click', async () => {
     refresh();
   } catch (e) { $('setMsg').textContent = e.message; }
 });
+// ---------- region summaries (S5) ----------
+// Runs are written by `python -m unitwave.cli.summarise` (slow: every session of a set
+// is tested); the server reads them and draws the figures. The page shows them.
+async function loadSummaries() {
+  const runs = await (await fetch('/api/summaries')).json();
+  $('summaryRun').innerHTML = runs.length
+    ? runs.map((r) => `<option value="${esc(r.run)}">${esc(r.set)} · ${esc(r.label)} · ${r.n_sessions} sessions` +
+      ` · ${r.n_claims} of ${r.n_tested} regions with a claim · ${esc(r.created.slice(0, 16).replace('T', ' '))}</option>`).join('')
+    : '<option value="">None yet</option>';
+  $('summaryMeta').textContent = runs.length ? `${runs.length} in runs/` : '';
+  showSummary();
+}
+function summaryHow() {
+  const file = $('setList').value || 'NAME.unitwave-set.json';
+  $('summaryHow').textContent = 'Made from a saved set on the command line, because every session is tested (minutes per session): ' +
+    `python -m unitwave.cli.summarise "${state.setsFolder}/${file}" --label responsive --event stim_on ` +
+    '(or --label selective --event stim_on --split choice, or --label locked).';
+}
+function drawSummary() {
+  const run = encodeURIComponent($('summaryRun').value);
+  $('summaryMap').src = `/api/summary.png?run=${run}&kind=flatmap&theme=${theme()}`;
+  $('summarySpread').src = `/api/summary.png?run=${run}&kind=spread&theme=${theme()}`;
+}
+async function showSummary() {
+  const run = $('summaryRun').value;
+  for (const id of ['summaryMap', 'summarySpread']) $(id).hidden = !run;
+  for (const id of ['summaryCaption', 'summaryClaims', 'summaryErr']) $(id).textContent = '';
+  if (!run) return;
+  try {
+    const r = await fetch(`/api/summary?run=${encodeURIComponent(run)}`);
+    if (!r.ok) throw new Error((await r.text()).replace(/^Cannot show this: /, ''));
+    const d = await r.json();
+    $('summaryCaption').textContent = d.caption;
+    $('summaryClaims').textContent = d.claims.length
+      ? 'Regions with a claim: ' + d.claims.map((c) => `${c.region} ${c.direction} (q = ${Number(c.q).toPrecision(2)}, ` +
+        `${c.n_sessions} sessions, ${c.n_units} units)`).join(' · ')
+      : d.n_tested ? 'No region differs from its sessions after correction.'
+        : `No region has units in at least ${d.min_sessions} sessions of this set, so none gets a verdict.`;
+    drawSummary();
+  } catch (e) {
+    $('summaryErr').textContent = e.message;
+  }
+}
+$('summaryRun').addEventListener('change', showSummary);
+$('setList').addEventListener('change', summaryHow);
+
 refresh();
 completePhy();
 loadProjects();
 loadSets();
+loadSummaries();

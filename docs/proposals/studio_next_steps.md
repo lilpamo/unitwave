@@ -159,7 +159,20 @@ below.
 - **Found on the way:** the legend's title was drawn black, unreadable on the dark
   page; it now uses the theme's ink.
 
-### S5. Across-session region summaries (plan step 12) — planned
+### S5. Across-session region summaries (plan step 12) — built (2026-10-01)
+
+Built (`docs/DECISIONS.md`, "S5 region summaries"). Differences from the plan:
+- **The null:** region labels permuted within each session, computed exactly, as
+  the sum of each session's hypergeometric count; no seed. A mixed model wasn't
+  used.
+- **Labels:** responsive, selective or movement-locked, the same tests Studio
+  runs, on the set's own trial filter.
+- **Minimum:** 5 sessions per region, signed off in chat. With 8 CA1-rich
+  sessions, only CA1 reached it.
+- **Homepage:** the card shows finished runs and gives the command for a chosen
+  set. Runs aren't started from the page, because they are slow.
+
+**The plan:**
 
 The engine goes in `analysis/summary.py`, with a CLI entry point because it is
 slow. The input is a session set from the homepage.
@@ -851,7 +864,7 @@ pseudo-sessions for block.
 - Keyboard next and previous follow the table's order.
 - Pinned units survive a filter change.
 
-## 12. Across-session region summaries
+## 12. Across-session region summaries — built as S5 (2026-10-01)
 
 **Adds:**
 - **Per region:** the fraction of responsive or tuned units per Beryl region
