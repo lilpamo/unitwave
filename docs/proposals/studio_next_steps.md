@@ -189,7 +189,19 @@ stimulus conditions (e.g. orientation, spatial frequency).
   reason (selectivity on choice, movement controls).
 - **The proof:** as in step 5, every view, with screenshots.
 
-### Step 7. A dataset without the Allen mouse atlas — planned
+### Step 7. A dataset without the Allen mouse atlas — built (2026-10-02)
+
+Built (`docs/DECISIONS.md`, "Step 7") on MC_Maze_Small (DANDI 000140, macaque M1 and
+PMd, Utah arrays), the user's choice of four candidates.
+- **Works:** everything that doesn't need an atlas, including movement controls
+  around real movement onsets.
+- **Refused with reasons:** atlas features, areas (the file's unit-electrode links
+  can't be trusted), the probe strip (no depth) and decoding.
+- **Unit QC:** the spike-time rule passes 30 of 142 units in this 294 s session.
+- **New layout options:** a two-channel series read as its magnitude, a single unit
+  group, refused locations, and refused depth.
+
+The plan, as written:
 
 - **Choose the dataset:** propose 2–3 candidates (e.g. rat or monkey recordings on
   DANDI with a trials table), with sizes and why each is a good test. Wait for the

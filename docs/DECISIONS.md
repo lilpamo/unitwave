@@ -6,6 +6,79 @@ first.
 
 ---
 
+### 2026-10-02 — Step 7: a dataset without the Allen mouse atlas, MC_Maze_Small (`configs/nwb/nlb_mc_maze.yaml`, `configs/tasks/nlb_mc_maze.yaml`)
+
+**The choice (the user's, of four proposed):** Neural Latents Benchmark MC_Maze_Small,
+DANDI 000140 (version 0.220113.0408).
+- **What it is:** macaque (Jenkins), two 96-channel Utah arrays labelled M1 and PMd,
+  delayed center-out reaching through mazes.
+- **Downloaded:** only `sub-Jenkins_ses-small_desc-train_behavior+ecephys.nwb`,
+  29,207,528 bytes. Its SHA-256 matches DANDI's. It is in `data_root/dandi/000140/`.
+  The test file (held-out trials, no behaviour) isn't needed.
+- **Not chosen:** MC_Maze (DANDI 000128, 691 MB), DMFC_RSG (000130, 14 MB) and
+  Area2_Bump (000127, 1.8 GB).
+- **The rat set** 000173 wasn't offered: its catalogue lists units only, with no
+  sign of a trials table.
+
+**What the file holds, checked by hand:**
+- **Units:** 142, with spike times and NLB's `heldout` flag; no quality column. A
+  short session: 294 s and 100 trials (75 train, 25 val).
+- **The units' electrode links can't be trusted:** every unit points into the PMd
+  array's rows (0–94, 78 distinct), though both arrays recorded (PMd rows 0–95, M1
+  rows 96–191). They look like per-array channel numbers used as session-wide rows,
+  the defect found in DANDI 000017. Unlike Steinmetz, no other column says which
+  array a unit is on.
+  - So areas aren't read: the layout refuses them, with that reason.
+  - All units form one group (layout `probe: single`).
+  - Studio's generic reading refuses them too, since its own-probe check fails.
+- **Positions and depth:** the electrodes have no coordinates (x, y, z are empty),
+  and Utah arrays have no depth along a shank. Both are refused, with their reasons
+  (new layout `depth: {refused: …}`).
+- **Trials:** target-on, go-cue and movement-onset times; maze, target count (1 or
+  3) and barrier count (0 or 9). Target and barrier positions are per-trial arrays,
+  which aren't read; the report lists them.
+- **Behaviour:** hand velocity has two channels (mm/s, scaled to m/s by the file's
+  conversion). Its magnitude is read as hand speed (new layout behaviour
+  `{path, combine: norm}`). Cursor, eye and hand position are listed as not read.
+
+**The MC_Maze task definition:**
+- **Events:** target onset, go cue and movement onset, also drawn in the trial view.
+- **Conditions:** maze, targets shown, barriers, and median splits of the delay and
+  reaction time.
+- **Comparisons:** one vs three targets, and barriers vs none. Both are plain
+  permutations, because each maze fixes its targets and barriers, so neither can be
+  permuted within a maze. A difference may be the reach's, not the count's; the
+  task file says so.
+- **Movement:** go cue to movement onset, reaction times permuted within maze.
+  Unlike Steinmetz, this task has real movement onsets, so movement controls work.
+
+**The proof (opened from the homepage in 0.5 s):**
+- **Works:**
+  - the raster and PSTH, condition splits and tuning, the population heatmap,
+    trajectories and pairs;
+  - the single-trial view, with hand speed rising after movement onset;
+  - the quality panel and export;
+  - responsiveness at the go cue: 13 of 30 units (54,321 shifts);
+  - movement locking: 10 of 30 (reaction times permuted within maze, 10,000 draws);
+  - movement-free trials: 69 of 100;
+  - targets selectivity at the go cue: 1 of 30 (66 vs 34 trials).
+- **Refused, with the reason on the page:**
+  - the 3D view (no coordinates, and no mouse atlas);
+  - the region tree and levels, and the Region column (areas can't be told);
+  - the probe strip (no depth);
+  - the wheel (not mapped);
+  - decoding (BWM only).
+
+**Unit QC:** spike times only (no quality column). 30 of 142 units pass.
+- 112 fail IBL's sliding refractory test, and 14 fail on presence.
+- The session is 294 s long and the median unit fires at 2.2 Hz, too few spikes to
+  show low contamination confidently. The test fails such units by design. The
+  longer MC_Maze file would pass more.
+- "Include units failing QC" shows all 142.
+
+**Not changed:** the IBL, Phy, Steinmetz and Allen behaviour; `preprocess/`,
+`splits/` and cache keys. No dependency was added.
+
 ### 2026-10-02 — Step 6: Allen Brain Observatory Visual Coding, passive tasks (`configs/nwb/allen_visual_coding.yaml`, `configs/tasks/allen_*.yaml`, circular selectivity)
 
 **The source:** DANDI 000021, Allen Institute Visual Coding Neuropixels (Brain

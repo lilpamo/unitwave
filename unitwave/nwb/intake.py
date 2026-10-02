@@ -50,7 +50,7 @@ from unitwave.nwb.probe import _all_series, open_nwb
 LAYOUTS_DIR = Path(__file__).resolve().parents[2] / "configs" / "nwb"
 # Session eid -> the capability report of the file it was read from, for Studio.
 REPORTS: dict[str, dict] = {}
-LOCATION_KINDS = ("peak_channel", "electrode_id", "electrodes", "units_column")
+LOCATION_KINDS = ("peak_channel", "electrode_id", "electrodes", "units_column", "refused")
 # Text that means "no value" in a column of numbers stored as text (Allen's "N/A").
 MISSING_TEXT = ("N/A", "NA", "null", "None", "nan", "NaN", "")
 _POSITIONS = "positions aren't read from NWB files: no coordinate convention is verified"
@@ -109,9 +109,10 @@ class NwbLayout:
     depth_column: str | None
     location: tuple | None  # (kind, options) or None: chosen from the file (GENERIC)
     quality: Quality | None
-    behaviour: dict
+    behaviour: dict  # name -> (path, None or "norm": the magnitude of its channels)
     positions_reason: str
     depth_electrodes_column: str | None = None  # depth from the unit's electrode
+    depth_refused: str | None = None  # why there is no depth, when the layout says
     # The unit's probe: its units.electrode_group, or the group of the electrode its
     # location comes from (Allen's units have no electrode_group column).
     probe_source: str = "electrode_group"
@@ -179,23 +180,17 @@ def layout_from_dict(raw: dict) -> NwbLayout:
     units = raw["units"]
     _need("units", units, set(), {"probe", "depth", "location", "quality"})
     probe_source = units.get("probe", "electrode_group")
-    if probe_source not in ("electrode_group", "location_electrode"):
-        raise ValueError("units probe: electrode_group, or location_electrode")
-    depth = depth_electrodes = None
+    if probe_source not in ("electrode_group", "location_electrode", "single"):
+        raise ValueError("units probe: electrode_group, location_electrode or single")
+    depth = depth_electrodes = depth_refused = None
     if "depth" in units:
         d = units["depth"]
-        if (
-            not isinstance(d, dict)
-            or len(d) != 1
-            or next(iter(d))
-            not in (
-                "column",
-                "electrodes_column",
-            )
-        ):
-            raise ValueError("units depth: give a column or an electrodes_column")
+        kinds = ("column", "electrodes_column", "refused")
+        if not isinstance(d, dict) or len(d) != 1 or next(iter(d)) not in kinds:
+            raise ValueError("units depth: give a column, an electrodes_column, or refused")
         depth = str(d["column"]) if "column" in d else None
         depth_electrodes = str(d["electrodes_column"]) if "electrodes_column" in d else None
+        depth_refused = str(d["refused"]) if "refused" in d else None
     location = None
     if "location" in units:
         loc = units["location"]
@@ -209,13 +204,21 @@ def layout_from_dict(raw: dict) -> NwbLayout:
             _need("units location electrode_id", options, {"column"})
         elif kind == "units_column":
             _need("units location units_column", options, {"column"})
+        elif kind == "refused":
+            _need("units location refused", options, {"reason"})
         location = (kind, dict(options))
     quality = None
     if "quality" in units:
         quality = _quality(units["quality"])
-    behaviour = raw.get("behaviour") or {}
-    if not isinstance(behaviour, dict) or not all(isinstance(p, str) for p in behaviour.values()):
-        raise ValueError("behaviour: map each name to a path in the file")
+    behaviour = {}
+    for name, entry in (raw.get("behaviour") or {}).items():
+        if isinstance(entry, str):
+            behaviour[str(name)] = (entry, None)
+            continue
+        _need(f"behaviour {name}", entry, {"path"}, {"combine"})
+        if entry.get("combine", "norm") != "norm":
+            raise ValueError(f"behaviour {name}: combine is norm (the magnitude of its channels)")
+        behaviour[str(name)] = (str(entry["path"]), entry.get("combine"))
     positions = raw.get("positions") or {"refused": _POSITIONS}
     _need("positions", positions, {"refused"})
     return NwbLayout(
@@ -225,9 +228,10 @@ def layout_from_dict(raw: dict) -> NwbLayout:
         depth_column=depth,
         location=location,
         quality=quality,
-        behaviour={str(k): str(v) for k, v in behaviour.items()},
+        behaviour=behaviour,
         positions_reason=str(positions["refused"]),
         depth_electrodes_column=depth_electrodes,
+        depth_refused=depth_refused,
         probe_source=probe_source,
         trials_by_task={str(k): str(v) for k, v in by_task.items()},
         trials_table=trials.get("table"),
@@ -305,6 +309,8 @@ def _locations(nwb, units, ids, probes, layout: NwbLayout):
     """(per-unit location names or None, each unit's electrode row or None, where the
     names came from, why not if None)."""
     kind, options = layout.location or (None, {})
+    if kind == "refused":
+        return None, None, "", options["reason"]
     names = units.colnames
     if kind is None:  # GENERIC: the file's standard columns
         if "location" in names:
@@ -375,14 +381,14 @@ def _series_at(nwb, path: str):
 def _behaviour(nwb, layout: NwbLayout) -> tuple[dict, dict, dict]:
     """(loaded TimeSeries, report entry per name, reason per name not loaded)."""
     loaded, report, why_not = {}, {}, {}
-    for name, path in layout.behaviour.items():
+    for name, (path, combine) in layout.behaviour.items():
         obj = _series_at(nwb, path)
         shape = tuple(getattr(getattr(obj, "data", None), "shape", ()) or ())
         n = shape[0] if shape else 0
         rate = getattr(obj, "rate", None)
         if obj is None or not shape:
             why_not[name] = f"{path}: not in this file"
-        elif len(shape) > 1 and shape[1] > 1:
+        elif len(shape) > 1 and shape[1] > 1 and combine != "norm":
             why_not[name] = f"{path}: {shape[1]} channels; only single-channel series are read"
         elif obj.timestamps is None and not (rate is not None and rate > 0):
             why_not[name] = f"{path}: neither timestamps nor a rate"
@@ -396,11 +402,17 @@ def _behaviour(nwb, layout: NwbLayout) -> tuple[dict, dict, dict]:
                 ts = np.asarray(obj.timestamps[:], dtype=np.float64)
             else:
                 ts = float(obj.starting_time or 0.0) + np.arange(n) / float(rate)
-            data = np.asarray(obj.data[:], dtype=np.float64).ravel()
+            data = np.asarray(obj.data[:], dtype=np.float64)
             values = data * float(obj.conversion) + float(getattr(obj, "offset", 0.0))
-            loaded[name] = TimeSeries(ts, values)
+            what = ""
+            if values.ndim > 1 and values.shape[1] > 1:  # declared: its channels' magnitude
+                values, what = (
+                    np.linalg.norm(values, axis=1),
+                    f", magnitude of {data.shape[1]} channels",
+                )
+            loaded[name] = TimeSeries(ts, values.ravel())
             how = "timestamps" if obj.timestamps is not None else f"{rate:g} Hz"
-            report[name] = {"loaded": f"{path} ({n:,} samples, {how}, {obj.unit})"}
+            report[name] = {"loaded": f"{path} ({n:,} samples, {how}, {obj.unit}{what})"}
         if name in why_not:
             report[name] = {"refused": why_not[name]}
     return loaded, report, why_not
@@ -530,7 +542,7 @@ def read_nwb(
                     f"{path.name}: the units' probes come from their electrodes, and {why}"
                 )
             probes = _electrode_groups(nwb)[rows]
-        elif "electrode_group" in units.colnames:
+        elif layout.probe_source != "single" and "electrode_group" in units.colnames:
             probes = _strings([g.name for g in units["electrode_group"].data[:]])
         else:
             probes = np.full(len(units), "units", dtype=object)
@@ -555,13 +567,15 @@ def read_nwb(
         elif layout.depth_electrodes_column:
             missing["units.depths"] = f"depth comes from the unit's electrode, and {why}"
         else:
-            missing["units.depths"] = f"the {layout.label} layout declares no depth column"
+            missing["units.depths"] = (
+                layout.depth_refused or f"the {layout.label} layout declares no depth column"
+            )
         trials, skipped, converted = _trials(trials_table)
         invalid = []
         if layout.mark_invalid_times:
             trials["invalid_overlap"], invalid = _invalid_overlap(nwb, trials)
         behaviour, behaviour_report, behaviour_why = _behaviour(nwb, layout)
-        mapped = set(layout.behaviour.values())
+        mapped = {path for path, _ in layout.behaviour.values()}
         not_read = sorted(p for p in _all_series(nwb) if p not in mapped)
 
     regions: dict = {}
