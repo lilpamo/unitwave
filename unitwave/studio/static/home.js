@@ -118,6 +118,17 @@ function setup(d) {
   $('minRegionUnits').value = o.min_region_units;
   $('modalities').innerHTML = o.modalities.map((m) => `<label><input type="checkbox" value="${esc(m)}"> ${esc(m)}</label>`).join('');
   for (const t of o.tasks) $('phyTask').add(new Option(`${t.label} (${t.name})`, t.name, t.name === o.default_task, t.name === o.default_task));
+  // NWB: a layout brings its own task, which can still be changed.
+  $('nwbLayout').add(new Option('Generic NWB (no layout)', ''));
+  for (const l of o.layouts) $('nwbLayout').add(new Option(l.label, l.name, false, false));
+  for (const t of o.tasks) $('nwbTask').add(new Option(`${t.label} (${t.name})`, t.name));
+  const layoutTask = () => {
+    const l = o.layouts.find((x) => x.name === $('nwbLayout').value);
+    $('nwbTask').value = (l && l.task) || o.default_task;
+  };
+  $('nwbLayout').addEventListener('change', layoutTask);
+  if (o.layouts.length) $('nwbLayout').value = o.layouts[0].name;
+  layoutTask();
   const t = o.default_trial_filter, lv = o.trial_levels;
   $('tfInclude').checked = t.bwm_include;
   $('tfNogo').checked = t.exclude_nogo;
@@ -177,10 +188,15 @@ async function completePhy() {
   $('phyRoot').textContent = `Folders under ${d.root}. Each opens with the events.csv beside its params.py.`;
   $('phyChoices').innerHTML = d.choices.map((c) => `<option value="${esc(c.path)}${c.phy ? '' : '/'}">${c.phy ? (c.events ? 'Phy folder' : 'Phy folder, no events.csv') : 'folder'}</option>`).join('');
 }
+async function completeNwb() {
+  const d = await (await fetch('/api/nwb/complete?' + new URLSearchParams({ prefix: $('nwbPath').value }))).json();
+  $('nwbRoot').textContent = `Files under ${d.root}.`;
+  $('nwbChoices').innerHTML = d.choices.map((c) => `<option value="${esc(c.path)}${c.nwb ? '' : '/'}">${c.nwb ? `NWB file, ${c.size_mb} MB` : 'folder'}</option>`).join('');
+}
 async function loadProjects() {
   const d = await (await fetch('/api/projects')).json();
   $('projects').innerHTML = d.projects.length
-    ? d.projects.map((p) => `<div class="row"><span title="${esc(p.file)} · ${esc(JSON.stringify(p.source))}">${esc(p.name)} · ${esc(p.source.kind === 'phy' ? 'Phy' : (p.source.eid || '').slice(0, 8))}${p.file.endsWith('.unitwave.json') ? '' : ' <span class="note">(old file ending)</span>'}</span><button class="btn" data-project="${esc(p.file)}">Open</button></div>`).join('')
+    ? d.projects.map((p) => `<div class="row"><span title="${esc(p.file)} · ${esc(JSON.stringify(p.source))}">${esc(p.name)} · ${esc(p.source.kind === 'phy' ? 'Phy' : p.source.kind === 'nwb' ? `NWB · ${(p.source.file || '').split('/').pop()}` : (p.source.eid || '').slice(0, 8))}${p.file.endsWith('.unitwave.json') ? '' : ' <span class="note">(old file ending)</span>'}</span><button class="btn" data-project="${esc(p.file)}">Open</button></div>`).join('')
     : '<p class="note">No saved projects yet.</p>';
 }
 async function loadSets() {
@@ -239,6 +255,10 @@ $('rows').addEventListener('change', (e) => {
   $('setMsg').textContent = `${state.selected.size} sessions selected.`;
 });
 $('phyPath').addEventListener('input', completePhy);
+$('nwbPath').addEventListener('input', completeNwb);
+$('nwbOpen').addEventListener('click', () => openData(
+  { kind: 'nwb', path: $('nwbPath').value, layout: $('nwbLayout').value, task: $('nwbTask').value },
+  `NWB file ${$('nwbPath').value}`));
 $('phyOpen').addEventListener('click', () => openData(
   { kind: 'phy', path: $('phyPath').value, task: $('phyTaskFile').value.trim() || $('phyTask').value },
   `Phy folder ${$('phyPath').value}`));
@@ -307,6 +327,7 @@ $('setList').addEventListener('change', summaryHow);
 
 refresh();
 completePhy();
+completeNwb();
 loadProjects();
 loadSets();
 loadSummaries();

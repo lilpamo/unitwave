@@ -1,0 +1,36 @@
+# Steinmetz, Zatka-Haas, Carandini & Harris 2019, as published on DANDI 000017
+# (version 0.240329.1926). What its NWB files hold, checked on sub-Richards
+# 2017-10-31 (docs/DECISIONS.md, "Step 5: NWB intake"). Read by unitwave/nwb/intake.py.
+name: steinmetz_2019
+label: Steinmetz et al. 2019 (DANDI 000017)
+task: steinmetz
+
+units:
+  probe: electrode_group
+  # The file: "relative to the probe. The deepest channel on the probe is depth=0".
+  depth: {column: cluster_depths}
+  # units.electrodes counts rows per probe, so Probe2's point into Probe1's electrodes.
+  # peak_channel is 1-based across both probes, as in the original data, and lands on
+  # each unit's own probe (checked on every file; regions are refused otherwise).
+  location:
+    peak_channel: {column: peak_channel, first: 1}
+  # The file: "the neurons with _phy_annotation>=2 are the ones that should be included".
+  quality:
+    column: phy_annotations
+    pass_at_least: 2
+    names: {1: MUA, 2: good, 3: unsorted}
+
+# Single-channel series, by path. wheel_position, lickPiezo and face_motion_energy
+# store sampling periods as rates (e.g. 0.0004 for 2500 Hz); the reader refuses them
+# rather than correcting them (the user's decision, 2026-10-02).
+behaviour:
+  pupil_area: processing/behavior/PupilTracking/eye_area
+  wheel: acquisition/wheel_position
+  lick_piezo: acquisition/lickPiezo
+  face_motion_energy: processing/behavior/BehavioralTimeSeries/face_motion_energy
+
+positions:
+  refused: >-
+    DANDI 000017's CCF coordinates disagree with its own region names (Richards
+    2017-10-31: 292 of 748 electrodes agree at Beryl level, best of every axis order),
+    so positions aren't used

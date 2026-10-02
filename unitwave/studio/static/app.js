@@ -54,11 +54,28 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
   if (!document.documentElement.dataset.theme) redrawForTheme();
 });
 
+// What an NWB file supports (nwb.intake's capability report): read, refused, not read.
+function renderSourceReport(r) {
+  $('sourceReport').hidden = !r;
+  if (!r) return;
+  const row = (what, text, cls = '') => `<li class="${cls}"><b>${esc(what)}</b> ${esc(text)}</li>`;
+  const items = [
+    row('Units', `${r.units.n}, probes ${r.units.probes.join(', ')}` + (r.units.depth ? `; depth from ${r.units.depth}` : '; no depth')),
+    row('Quality', r.units.quality || 'none declared: unit QC is on spike times'),
+    r.regions.refused ? row('Regions', `not read: ${r.regions.refused}`, 'gone') : row('Regions', `${r.regions.source}${r.regions.allen ? ' (Allen CCF acronyms)' : ''}`),
+    row('Positions', `not read: ${r.positions.refused}`, 'gone'),
+    row('Trials', `${r.trials.n}; columns ${r.trials.columns.join(', ')}` + (r.trials.not_read.length ? `; not read: ${r.trials.not_read.join(', ')}` : '')),
+    ...Object.entries(r.behaviour).map(([k, v]) => (v.loaded ? row(k, v.loaded) : row(k, `refused: ${v.refused}`, 'gone'))),
+  ];
+  if (r.not_read.length) items.push(row('Not read', `no layout maps ${r.not_read.join(', ')}`, 'gone'));
+  $('sourceReportBody').innerHTML = `<p class="note">Layout: ${esc(r.layout)}</p><ul>${items.join('')}</ul>`;
+}
+
 // ---------- data ----------
 async function init() {
   const s = (state.session = await getJSON('/api/session'));
-  const phy = s.eid.startsWith('phy:');
-  $('source').textContent = phy ? `Phy folder · ${s.eid.slice(4)}` : `IBL session · ${s.eid}`;
+  $('source').textContent = s.source.label;
+  renderSourceReport(s.source.report);
   $('source').title = s.eid;
   // The source's own QC rule decides; the spike-time verdict is shown beside it.
   const own = s.qc.rule !== 'spike times';
@@ -492,7 +509,7 @@ function renderQualityFacts(d) {
   const rp = r.why ? `no refractory test: ${esc(r.why)}`
     : `sliding refractory-period test (${Math.round(r.contamination * 100)}% contamination, ${Math.round(r.confidence * 100)}% confidence): ` +
       (r.passed ? `passes from ${r.first_pass_rp_ms.toFixed(2)} ms` : 'fails at every period tested') +
-      (r.used_by_qc ? ' · part of this QC' : " · IBL's settings, shown for reference; this QC uses IBL's label");
+      (r.used_by_qc ? ' · part of this QC' : ` · IBL's settings, shown for reference; this QC uses the ${state.session.qc.rule} rule`);
   const reasons = d.qc.reasons.length ? `<ul>${d.qc.reasons.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
   let ibl = `<div>IBL's label criteria: ${esc(d.ibl_missing)}</div>`;
   if (d.ibl_criteria) {
@@ -551,6 +568,7 @@ function renderConnections(t) {
 function renderDecodingIntro(d) {
   $('decTarget').innerHTML = d.targets.map((t) => `<option value="${esc(t.id)}">${esc(t.label)}</option>`).join('');
   $('decTarget').disabled = $('runDec').disabled = !d.available;
+  if (!d.available) $('decCaption').textContent = `Not available: ${d.why}`;
   $('decWhat').textContent = !d.available ? d.why
     : `Logistic regression on the shown units that pass QC, this session only. The first ${d.train_fraction * 100}% ` +
       `of trials train and the rest test, after a ${d.gap_s} s gap (${d.leave_one_block_out.join(', ')}: leave-one-block-out). ` +

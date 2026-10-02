@@ -36,15 +36,19 @@ class CatalogConfig:
     min_region_units: int
     default_trial_filter: dict = field(default_factory=dict)
     phy_root: str = "phy"  # relative to data_root unless absolute
+    nwb_root: str = "dandi"  # relative to data_root unless absolute
 
 
 def load_catalog_config(path: str | os.PathLike = DEFAULT_CONFIG) -> CatalogConfig:
     raw = yaml.safe_load(Path(path).read_text()) or {}
-    keys = {"min_region_units", "default_trial_filter", "phy_root"}
+    keys = {"min_region_units", "default_trial_filter", "phy_root", "nwb_root"}
     if set(raw) != keys:
         raise ValueError(f"{path}: keys {sorted(raw)}, expected {sorted(keys)}")
     return CatalogConfig(
-        int(raw["min_region_units"]), dict(raw["default_trial_filter"]), str(raw["phy_root"])
+        int(raw["min_region_units"]),
+        dict(raw["default_trial_filter"]),
+        str(raw["phy_root"]),
+        str(raw["nwb_root"]),
     )
 
 

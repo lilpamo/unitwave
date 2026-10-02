@@ -75,6 +75,12 @@
         <div class="inline"><label for="phyTask">Task</label><select id="phyTask"></select><input id="phyTaskFile" placeholder="or a task definition file (.yaml)" autocomplete="off"></div>
         <p class="note">The events file is read with this task's column names, events and conditions. A file without the columns it needs is refused, naming them.</p>
         <p class="note" id="phyMsg"></p>
+        <h4>Open an NWB file</h4>
+        <p class="note" id="nwbRoot"></p>
+        <div class="inline"><input id="nwbPath" list="nwbChoices" placeholder="file under the root, e.g. 000017/sub-Richards/…nwb" autocomplete="off"><datalist id="nwbChoices"></datalist><button class="btn" id="nwbOpen">Open</button></div>
+        <div class="inline"><label for="nwbLayout">Layout</label><select id="nwbLayout"></select></div>
+        <div class="inline"><label for="nwbTask">Task</label><select id="nwbTask"></select></div>
+        <p class="note">The layout declares what the dataset's files hold (quality column, regions, behaviour); without one, the file is read generically. Anything the file holds outside what Studio reads is listed on the session page, with the reason.</p>
         <h4>Recent projects</h4>
         <div class="list" id="projects"></div>
         <h4>Session sets</h4>

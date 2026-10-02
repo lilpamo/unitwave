@@ -99,6 +99,25 @@ def _median_split_difference(trials, columns):
     return values, {0.0: f"early (< {ms})", 1.0: f"late (≥ {ms})"}
 
 
+def _difference(trials, columns):
+    """first - second column; NaN where either is missing."""
+    a = trials[columns[0]].to_numpy(np.float64)
+    return a - trials[columns[1]].to_numpy(np.float64), None
+
+
+def _combination(trials, columns):
+    """A number for each distinct pair of values, in sorted order (0, 1, ...); NaN where
+    either is missing. For strata: e.g. Steinmetz's left and right contrasts."""
+    a = trials[columns[0]].to_numpy(np.float64)
+    b = trials[columns[1]].to_numpy(np.float64)
+    valid = np.isfinite(a) & np.isfinite(b)
+    out = np.full(a.shape, np.nan)
+    if valid.any():
+        pairs = np.column_stack([a[valid], b[valid]])
+        out[valid] = np.unique(pairs, axis=0, return_inverse=True)[1].ravel()
+    return out, None
+
+
 # name -> (number of columns, function(trials, columns) -> (values, level names or None))
 DERIVATIONS: dict[str, tuple[int, Callable]] = {
     "signed_contrast": (2, _signed_contrast),
@@ -106,6 +125,8 @@ DERIVATIONS: dict[str, tuple[int, Callable]] = {
     "signed_contrast_zero_by_side": (2, _signed_contrast_zero_by_side),
     "absolute_contrast": (2, _absolute_contrast),
     "median_split_difference": (2, _median_split_difference),
+    "difference": (2, _difference),
+    "combination": (2, _combination),
 }
 
 

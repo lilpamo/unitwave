@@ -39,6 +39,9 @@ from unitwave.analysis.tuning import DEFAULT_CONFIG as SELECTIVITY_CONFIG
 from unitwave.data.backends.phy import load_session_phy
 from unitwave.data.load import key_parts, load_session
 from unitwave.data.session import Session
+from unitwave.nwb.intake import REPORTS, layout_path, load_layout, read_nwb
+from unitwave.qc.nwb import DEFAULT_CONFIG as NWB_QC_CONFIG
+from unitwave.qc.nwb import NwbUnitQC, load_nwb_qc_config
 from unitwave.qc.phy import DEFAULT_CONFIG as PHY_QC_CONFIG
 from unitwave.qc.phy import PhyUnitQC, load_phy_qc_config
 from unitwave.qc.spike_times import DEFAULT_CONFIG as SPIKE_QC_CONFIG
@@ -105,8 +108,9 @@ DEFAULT_VIEW = {
 
 @dataclass(frozen=True)
 class Source:
-    """kind "ibl" (eid, backend) or "phy" (folder, events); task: the task definition,
-    a built-in name or a YAML file's path."""
+    """kind "ibl" (eid, backend), "phy" (folder, events) or "nwb" (file, and the layout
+    its specifics are declared in: a built-in name, a YAML path, or None for generic);
+    task: the task definition, a built-in name or a YAML file's path."""
 
     kind: str
     eid: str | None = None
@@ -114,9 +118,11 @@ class Source:
     folder: str | None = None
     events: str | None = None
     task: str = DEFAULT_TASK
+    file: str | None = None
+    layout: str | None = None
 
     def __post_init__(self):
-        needs = {"ibl": ("eid", "backend"), "phy": ("folder", "events")}
+        needs = {"ibl": ("eid", "backend"), "phy": ("folder", "events"), "nwb": ("file",)}
         if self.kind not in needs:
             raise ValueError(f"unknown data source kind {self.kind!r}")
         if any(getattr(self, f) is None for f in needs[self.kind]):
@@ -130,7 +136,7 @@ class Source:
 
 
 # Recorded with a source in a project file, never read back as its fields.
-_RECORDED_BESIDE = ("release", "task_label", "task_sha256")
+_RECORDED_BESIDE = ("release", "task_label", "task_sha256", "layout_label", "layout_sha256")
 
 
 def load_source(source: Source):
@@ -142,6 +148,13 @@ def load_source(source: Source):
         session = load_session_phy(source.folder, source.events, task=task)
         labelled = any((Path(source.folder) / name).exists() for name in PHY_LABEL_FILES)
         return session, load_phy_qc_config() if labelled else load_spike_qc_config()
+    if source.kind == "nwb":
+        layout = load_layout(source.layout)
+        intake = read_nwb(source.file, layout)
+        REPORTS[intake.session.eid] = intake.report
+        if layout.quality is None:
+            return intake.session, load_spike_qc_config()
+        return intake.session, load_nwb_qc_config(layout.quality)
     return load_session(source.eid, source.backend), load_qc_config()
 
 
@@ -154,7 +167,10 @@ def _sha256(path: Path) -> str:
 
 
 def file_hashes(source: Source) -> dict[str, str]:
-    """name -> sha256 of each Phy file present, and of the events CSV. {} for IBL."""
+    """name -> sha256 of each Phy file present and of the events CSV, or of the NWB
+    file. {} for IBL."""
+    if source.kind == "nwb":
+        return {Path(source.file).name: _sha256(Path(source.file))}
     if source.kind != "phy":
         return {}
     folder = Path(source.folder)
@@ -179,6 +195,8 @@ def qc_config_path(qc) -> Path:
     """The config file of a unit QC rule."""
     if isinstance(qc, SpikeQC):
         return Path(SPIKE_QC_CONFIG)
+    if isinstance(qc, NwbUnitQC):
+        return Path(NWB_QC_CONFIG)
     return Path(PHY_QC_CONFIG if isinstance(qc, PhyUnitQC) else QC_CONFIG)
 
 
@@ -222,6 +240,10 @@ def make_project(source: Source, session: Session, qc, view: dict) -> dict:
         project["source"]["release"] = key_parts(source.eid, source.backend)["source"]
     project["source"]["task_label"] = load_task(source.task).label
     project["source"]["task_sha256"] = _sha256(task_path(source.task))
+    if source.kind == "nwb":
+        project["source"]["layout_label"] = load_layout(source.layout).label
+        if source.layout not in (None, "", "generic"):
+            project["source"]["layout_sha256"] = _sha256(layout_path(source.layout))
     return project
 
 
@@ -276,6 +298,11 @@ def open_project(path: str | os.PathLike):
         warnings.append(
             f"the task definition {task_path(source.task)} changed since the project was saved"
         )
+    saved_layout = project["source"].get("layout_sha256")
+    if saved_layout is not None and saved_layout != _sha256(layout_path(source.layout)):
+        warnings.append(
+            f"the NWB layout {layout_path(source.layout)} changed since the project was saved"
+        )
     saved, now = project["files"], file_hashes(source)
     for name in sorted(set(saved) | set(now)):
         if name not in now:
@@ -285,7 +312,9 @@ def open_project(path: str | os.PathLike):
         elif saved[name] != now[name]:
             warnings.append(f"{name} changed since the project was saved")
     if session_fingerprint(session) != project["fingerprint"]:
-        where = source.folder if source.kind == "phy" else f"IBL session {source.eid}"
+        where = {"phy": source.folder, "nwb": source.file}.get(
+            source.kind, f"IBL session {source.eid}"
+        )
         warnings.append(f"the loaded data differ from when the project was saved ({where})")
     for name, config in _configs(qc).items():
         if name not in project["configs"]:  # files saved before this config was recorded

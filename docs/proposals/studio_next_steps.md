@@ -121,7 +121,26 @@ Some sources have no QC labels (e.g. Steinmetz 2019 has no quality metrics).
   - a source with no labels uses the spike-time rule;
   - agreement reporting.
 
-### Step 5. General NWB intake, proven on Steinmetz et al. 2019 (DANDI 000017) — planned
+### Step 5. General NWB intake, proven on Steinmetz et al. 2019 (DANDI 000017) — built (2026-10-02)
+
+Built (`docs/DECISIONS.md`, "Step 5: NWB intake"): `nwb/intake.py`, layouts in
+`configs/nwb/`, `configs/tasks/steinmetz.yaml`, `qc/nwb.py`, and the homepage's "Open
+an NWB file". The Richards 2017-10-31 session opens from the homepage, and every view
+works or refuses with its reason. Differences from the plan:
+- **A layout file per dataset** declares what the plan called "a declared subset":
+  quality column, depth, where regions come from, and behaviour paths. Without one,
+  a file is read generically.
+- **Steinmetz's files have quality labels** (`phy_annotations`). The NWB rule is
+  ≥ 2 and task rate ≥ 0.1 Hz (the user's choice).
+- **Defects found in DANDI 000017:**
+  - unit-electrode links cross probes, so regions come from `peak_channel`;
+  - three behaviour series store periods as rates, so they are refused;
+  - CCF coordinates disagree with the names, so the 3D view is disabled.
+
+  Each handling is the user's decision.
+- **No movement controls for Steinmetz:** its trials have no movement onset.
+
+The plan, as written:
 
 - **Read a declared subset of NWB:** the units table (spike times, and quality
   columns if present), the trials table, behaviour time series, and unit or

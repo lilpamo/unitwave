@@ -1,9 +1,12 @@
-"""Homepage entry points besides the BWM catalog: Phy folders and recent projects.
+"""Homepage entry points besides the BWM catalog: Phy folders, NWB files and recent
+projects.
 
 **Phy folders** are opened only from under a configured root (configs/catalog.yaml,
 `phy_root`). A path is resolved with every symlink followed and must stay inside the
 root, so `../` and symlinks pointing out are refused alike. A folder pairs with the
 `events.csv` beside its `params.py`. Missing files get plain-language refusals.
+
+**NWB files** are opened the same way, only from under `nwb_root` (configs/catalog.yaml).
 
 **Recent projects** are the `*.unitwave.json` files in `data_root/projects` (and
 `*.ndstudio.json`, from before the rename), newest
@@ -20,13 +23,59 @@ EVENTS_NAME = "events.csv"
 _MAX_CHOICES = 200
 
 
-def _inside(root: Path, path: Path) -> Path:
+def _inside(root: Path, path: Path, what: str = "Phy folder") -> Path:
     """path resolved (symlinks followed); refused unless it stays inside root."""
     real_root = root.resolve()
     real = path.resolve()
     if real != real_root and real_root not in real.parents:
-        raise ValueError(f"{path} is outside the Phy folder root {root}")
+        raise ValueError(f"{path} is outside the {what} root {root}")
     return real
+
+
+def resolve_nwb_file(root: str | os.PathLike, user_path: str) -> Path:
+    """An .nwb file under the root, or a plain-language refusal."""
+    root = Path(root).expanduser()
+    if not root.is_dir():
+        raise ValueError(f"the NWB file root {root} does not exist; set nwb_root in configs")
+    candidate = Path(user_path).expanduser()
+    path = _inside(root, candidate if candidate.is_absolute() else root / candidate, "NWB file")
+    if not path.exists():
+        raise ValueError(f"{user_path} does not exist under {root}")
+    if not path.is_file() or path.suffix != ".nwb":
+        raise ValueError(f"{user_path} is not an .nwb file")
+    return path
+
+
+def complete_nwb_path(root: str | os.PathLike, prefix: str) -> list[dict]:
+    """Folders and .nwb files under the root that continue `prefix`.
+
+    Each: {path relative to the root, nwb: is an .nwb file, size_mb}. Symlinks leading
+    out of the root are never offered.
+    """
+    root = Path(root).expanduser()
+    if not root.is_dir():
+        return []
+    parent_text, _, stem = prefix.rpartition("/")
+    parent = _inside(root, root / parent_text, "NWB file") if parent_text else root.resolve()
+    if not parent.is_dir():
+        return []
+    out = []
+    for child in sorted(parent.iterdir()):
+        if not child.name.startswith(stem) or child.name.startswith("."):
+            continue
+        try:
+            real = _inside(root, child, "NWB file")
+        except ValueError:
+            continue  # a symlink out of the root
+        is_nwb = real.is_file() and real.suffix == ".nwb"
+        if not (real.is_dir() or is_nwb):
+            continue
+        rel = f"{parent_text}/{child.name}" if parent_text else child.name
+        size = round(real.stat().st_size / 1e6, 1) if is_nwb else None
+        out.append({"path": rel, "nwb": is_nwb, "size_mb": size})
+        if len(out) >= _MAX_CHOICES:
+            break
+    return out
 
 
 def resolve_phy_folder(root: str | os.PathLike, user_path: str) -> tuple[Path, Path]:
@@ -103,6 +152,7 @@ def recent_projects(directory: str | os.PathLike) -> list[dict]:
         source = {k: v for k, v in raw.get("source", {}).items() if v is not None}
         source.pop("release", None)
         source.pop("task_sha256", None)
+        source.pop("layout_sha256", None)
         rows.append(
             {
                 "name": project_stem(path),

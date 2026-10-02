@@ -16,3 +16,7 @@ default_trial_filter:
 # absolute); paths outside it, including through symlinks, are refused. Each folder
 # pairs with the events.csv beside its params.py.
 phy_root: phy
+
+# "Open an NWB file" only opens .nwb files under this root (relative to data_root
+# unless absolute), with the same refusals. DANDI downloads live here (dandi/000017/).
+nwb_root: dandi

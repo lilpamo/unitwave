@@ -112,13 +112,17 @@ from unitwave.data.cluster_files import (
 )
 from unitwave.data.load import DataConfig, key_parts, load_data_config
 from unitwave.data.manifest import MANIFEST_VERSION, Manifest, build_manifest
+from unitwave.nwb.intake import REPORTS, list_layouts, load_layout
+from unitwave.qc.nwb import NwbUnitQC
 from unitwave.qc.phy import PhyUnitQC
 from unitwave.qc.spike_times import UNAVAILABLE, SpikeQC, load_spike_qc_config
 from unitwave.studio import APP_NAME
 from unitwave.studio.entry import (
+    complete_nwb_path,
     complete_phy_path,
     project_path,
     recent_projects,
+    resolve_nwb_file,
     resolve_phy_folder,
 )
 from unitwave.studio.export import export_view
@@ -329,6 +333,7 @@ class Studio:
             "n_units_passing": int(self.units["qc_passed"].sum()),
             "n_units_passing_spikes": int(self.units["spike_qc_passed"].sum()),
             "task": self._task_json(),
+            "source": self._source_json(),
             "events": available_events(self.session.trials, self.task),
             "levels": list(LEVELS),
             "default_level": DEFAULT_LEVEL,
@@ -423,14 +428,30 @@ class Studio:
             for c in self.task.events[e].columns
         )
 
+    def _source_json(self) -> dict:
+        """Where the session came from, and, for an NWB file, what the file supports
+        (nwb.intake's capability report)."""
+        s = self.source
+        if s is None or s.kind == "ibl":
+            return {"kind": "ibl", "label": f"IBL session · {self.session.eid}"}
+        if s.kind == "phy":
+            return {"kind": "phy", "label": f"Phy folder · {s.folder}"}
+        layout = load_layout(s.layout)
+        return {
+            "kind": "nwb",
+            "label": f"NWB file · {Path(s.file).name} · {layout.label}",
+            "report": REPORTS.get(self.session.eid),
+        }
+
     def _qc_info(self) -> dict:
         """Which rule decides QC here, and the spike-time rule shown beside it."""
         qc = self.qc
-        rule = (
-            "spike times"
-            if isinstance(qc, SpikeQC)
-            else "Phy group" if isinstance(qc, PhyUnitQC) else "IBL label"
-        )
+        if isinstance(qc, SpikeQC):
+            rule = "spike times"
+        elif isinstance(qc, NwbUnitQC):
+            rule = qc.rule
+        else:
+            rule = "Phy group" if isinstance(qc, PhyUnitQC) else "IBL label"
         s = self.spike_qc
         return {
             "rule": rule,
@@ -614,7 +635,9 @@ class Studio:
                 if ibl
                 else (
                     "Decoding needs a Brain Wide Map session: splits come from the split "
-                    "registry, built on the release's session manifest, which a Phy folder lacks."
+                    "registry, built on the release's session manifest, which "
+                    f"{'an NWB file' if self.source and self.source.kind == 'nwb' else 'a Phy folder'}"
+                    " lacks."
                 )
             ),
             "targets": [{"id": t, "label": label(t)} for t in cfg.targets],
@@ -1211,6 +1234,8 @@ class Studio:
 
     def _waveform(self, unit: str):
         """(Waveform, "") or (None, why there is none)."""
+        if self.source is not None and self.source.kind == "nwb":
+            return None, "waveforms aren't read from NWB files"
         cluster = int(self.session.units.at[unit, "cluster_id"])
         try:
             if self.source is not None and self.source.kind == "phy":
@@ -1235,11 +1260,15 @@ class Studio:
         )
         probe = self.units.at[unit, "probe"]
         waveform, waveform_missing = self._waveform(unit)
-        criteria, ibl_missing = (
-            self._criteria(unit)
-            if not phy
-            else (None, "not for Phy folders (IBL's amplitude criteria need volts)")
-        )
+        if self.source is not None and self.source.kind == "nwb":
+            criteria, ibl_missing = None, "only for IBL sessions (from IBL's own metrics)"
+        elif phy:
+            criteria, ibl_missing = (
+                None,
+                "not for Phy folders (IBL's amplitude criteria need volts)",
+            )
+        else:
+            criteria, ibl_missing = self._criteria(unit)
         uq = unit_quality(
             self.session.spikes,
             unit,
@@ -1497,6 +1526,7 @@ class App:
                 "min_region_units": self.catalog_cfg.min_region_units,
                 "trial_levels": _BWM_TRIAL_LEVELS,
                 "tasks": list_tasks(),
+                "layouts": list_layouts(),
                 "default_task": DEFAULT_TASK,
                 "default_trial_filter": TrialFilter.from_dict(
                     self.catalog_cfg.default_trial_filter
@@ -1532,6 +1562,17 @@ class App:
     def phy_root(self) -> Path:
         root = Path(self.catalog_cfg.phy_root).expanduser()
         return root if root.is_absolute() else self.data.data_root / root
+
+    @property
+    def nwb_root(self) -> Path:
+        root = Path(self.catalog_cfg.nwb_root).expanduser()
+        return root if root.is_absolute() else self.data.data_root / root
+
+    def nwb_complete(self, q: dict) -> dict:
+        return {
+            "root": str(self.nwb_root),
+            "choices": complete_nwb_path(self.nwb_root, q.get("prefix", "")),
+        }
 
     def phy_complete(self, q: dict) -> dict:
         return {
@@ -1585,12 +1626,19 @@ class App:
             task = str(body.get("task") or DEFAULT_TASK)
             source = Source(kind="phy", folder=str(folder), events=str(events), task=task)
             name = folder.name
+        elif kind == "nwb":
+            file = resolve_nwb_file(self.nwb_root, str(body.get("path", "")))
+            layout = body.get("layout") or None
+            task = str(body.get("task") or load_layout(layout).task or DEFAULT_TASK)
+            source = Source(kind="nwb", file=str(file), layout=layout, task=task)
+            name = file.stem
         elif kind == "ibl" and body.get("eid"):
             source = Source(kind="ibl", eid=str(body["eid"]), backend="bwm")
             name = source.eid[:8]
         else:
             raise ValueError(
-                "open needs {kind: 'ibl', eid}, {kind: 'phy', path} or {kind: 'project', name}"
+                "open needs {kind: 'ibl', eid}, {kind: 'phy', path}, {kind: 'nwb', path} "
+                "or {kind: 'project', name}"
             )
         task = load_task(source.task)  # refuses an unknown or malformed definition
         session, qc = self._loader(source)
@@ -1669,6 +1717,7 @@ _SESSION_ROUTES = {
 # path -> App method answering it; these work with no session open.
 _APP_ROUTES = {
     "/api/phy/complete": "phy_complete",
+    "/api/nwb/complete": "nwb_complete",
     "/api/projects": "projects",
     "/api/sets": "sets",
     "/api/summaries": "summaries",
@@ -1794,11 +1843,18 @@ def build_app(argv: list[str]) -> tuple[App, str]:
     ap.add_argument("--backend", default="bwm")
     ap.add_argument("--phy", help="a Kilosort/Phy output folder (one probe); needs --events")
     ap.add_argument("--events", help="CSV of trial events, seconds on the probe's clock")
+    ap.add_argument("--nwb", help="an NWB file with sorted units and a trials table")
+    ap.add_argument(
+        "--layout",
+        default=None,
+        help="with --nwb: the NWB layout its specifics are declared in, a built-in name "
+        "(configs/nwb/) or a YAML file; none reads it generically",
+    )
     ap.add_argument(
         "--task",
-        default=DEFAULT_TASK,
-        help="with --phy: the task definition the events are read with, a built-in name "
-        "(configs/tasks/) or a YAML file",
+        default=None,
+        help="with --phy or --nwb: the task definition the trials are read with, a built-in "
+        "name (configs/tasks/) or a YAML file (default: IBL's, or the NWB layout's)",
     )
     ap.add_argument(
         "--project",
@@ -1809,13 +1865,13 @@ def build_app(argv: list[str]) -> tuple[App, str]:
     args = ap.parse_args(argv)
     if bool(args.phy) != bool(args.events):
         ap.error("--phy and --events go together")
-    if args.phy and args.eid:
-        ap.error("choose one data source: --eid or --phy")
+    if sum(bool(x) for x in (args.phy, args.eid, args.nwb)) > 1:
+        ap.error("choose one data source: --eid, --phy or --nwb")
     data = load_data_config()
-    if not (args.project or args.phy or args.eid):
+    if not (args.project or args.phy or args.eid or args.nwb):
         return App(data), "/"
     view, warnings = None, []
-    if args.project and not (args.phy or args.eid):
+    if args.project and not (args.phy or args.eid or args.nwb):
         if not args.project.exists():
             ap.error(f"{args.project} does not exist; give a data source to start a new project")
         project, session, qc, warnings = open_project(args.project)
@@ -1827,13 +1883,21 @@ def build_app(argv: list[str]) -> tuple[App, str]:
                 kind="phy",
                 folder=str(Path(args.phy).resolve()),
                 events=str(Path(args.events).resolve()),
-                task=args.task,
+                task=args.task or DEFAULT_TASK,
+            )
+        elif args.nwb:
+            source = Source(
+                kind="nwb",
+                file=str(Path(args.nwb).resolve()),
+                layout=args.layout,
+                task=args.task or load_layout(args.layout).task or DEFAULT_TASK,
             )
         else:
             source = Source(kind="ibl", eid=args.eid, backend=args.backend)
         if args.project and args.project.exists():
             ap.error(f"{args.project} exists; open it with --project alone, or choose a new name")
-        name = Path(source.folder).name if source.kind == "phy" else source.eid[:8]
+        name = {"phy": lambda: Path(source.folder).name, "nwb": lambda: Path(source.file).stem}
+        name = name.get(source.kind, lambda: source.eid[:8])()
         path = args.project or _new_project_path(data.data_root / "projects", name)
         session, qc = load_source(source)
         # The same default as opening from the homepage; a project keeps its own.

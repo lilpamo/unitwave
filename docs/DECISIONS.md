@@ -6,6 +6,110 @@ first.
 
 ---
 
+### 2026-10-02 — Step 5: NWB intake, proven on Steinmetz et al. 2019 (`nwb/intake.py`, `configs/nwb/`, `configs/tasks/steinmetz.yaml`, `qc/nwb.py`)
+
+**What (the user's step 5):** Studio opens NWB files.
+- **What Studio reads** (`nwb/intake.py`):
+  - **units:** spike times, and the unit's probe from its electrode group;
+  - **trials:** start and stop become `intervals_0` and `intervals_1`; other columns
+    keep the file's names;
+  - **behaviour:** single-channel time series mapped by path;
+  - **regions:** location names, used as regions only when every one is an Allen CCF
+    acronym.
+- **Refused, saying why:** anything else, including:
+  - unit-electrode links that cross probes;
+  - a peak channel off its own probe;
+  - a series whose stored rate makes it longer than 24 h;
+  - a multi-channel series;
+  - positions.
+- **Layouts:** a dataset's specifics go in a layout file (`configs/nwb/*.yaml`): its
+  depth and quality columns, where regions come from, and its behaviour series.
+  Without one, a file is read generically: no quality (so unit QC uses spike times),
+  and no behaviour.
+- **The capability report** lists what was read, refused and not read, with reasons,
+  under "What this file supports" on the session page.
+- **Opening:** the homepage has "Open an NWB file" (files under `nwb_root`, layout,
+  task). The command line takes `--nwb FILE --layout NAME --task NAME`.
+- **The project file** records the file's sha256, and the layout with its label and
+  sha256. Reopening warns when either changed.
+
+**Downloaded (the user's OK, 2026-10-02):** one file from DANDI 000017, version
+0.240329.1926.
+- `sub-Richards/sub-Richards_ses-20171031T120000.nwb`, 204,150,135 bytes;
+- its SHA-256 matches DANDI's;
+- stored in `data_root/dandi/000017/`.
+
+**What the file holds, checked by hand:**
+- **Size:** 778 units (Probe1 352, Probe2 426), 4,703,292 spikes, and 260 trials
+  between 59 and 980 s of a 2,968 s recording.
+- **Unit-electrode links:** `units.electrodes` is wrong for every Probe2 unit; all
+  426 point into Probe1's electrodes. `peak_channel − 1`, counting across both probes
+  as the original data does, lands on each unit's own probe for all 778. Regions come
+  from it (the user's decision), giving 9 regions. The layout checks this on every
+  file, and refuses regions otherwise.
+- **Behaviour rates:** three series store the sampling period where the rate belongs:
+  - `wheel_position`: 0.0004 for 2,500 Hz;
+  - `lickPiezo`: 0.002 for 500 Hz;
+  - `face_motion_energy`: 0.0252 for 39.6 Hz.
+
+  Read literally, the wheel spans 18 billion s. They are refused, not corrected (the
+  user's decision). The pupil area, which has timestamps, is read.
+- **Quality:** `phy_annotations` (1 MUA, 2 good, 3 unsorted). The file says units at
+  2 or more "should be included". The NWB rule (`configs/qc_nwb.yaml`, the user's
+  decision) is at least 2 and a task-period rate of at least 0.1 Hz: 455 of 778 units
+  pass, and 178 pass on spike times. The plan expected no quality labels for
+  Steinmetz.
+- **Coordinates:** the electrodes' CCF coordinates agree with the file's own region
+  names on 292 of 748 electrodes at Beryl level (best of every axis order), and on
+  105 exactly. The 3D view is disabled, with that reason (the user's decision).
+  Region names still give the region tree and the Allen, Beryl and Cosmos levels.
+- **Depth:** `cluster_depths` is µm from the tip (the file's description), Studio's
+  convention.
+- **Left unresolved:** the electrodes' `site_position` disagrees with
+  `cluster_depths` under either electrode rule (median 507 µm on Probe1, 1,016 µm on
+  Probe2), so site positions aren't used.
+- **Spike amplitudes** are stored (`spike_amps`) but not read. Step 4's wording
+  "aren't stored" was changed to "Studio doesn't read".
+
+**The Steinmetz task definition** (`configs/tasks/steinmetz.yaml`):
+- **Events:** stimulus onset, go cue, response, and feedback split by outcome.
+- **Conditions:** left contrast, right contrast, contrast difference, choice and
+  outcome.
+  - The choice levels follow the file's description: −1 right, +1 left, 0 no-go. The
+    data agree on 142 of 142 correct trials with unequal contrasts.
+- **Comparisons:** choice and outcome, each permuted within the trial's pair of left
+  and right contrasts.
+- **No movement events:** the trials hold the response time, when the wheel reached
+  threshold, not movement onset. Movement controls are unavailable rather than
+  mislabelled.
+- **Trial filters:** engaged trials (the file's `included`: engagement only, not the
+  paper's response-time criterion), exclude no-go, and outcomes.
+- **Two new derivations,** tested by hand: `difference` and `combination` (a number
+  per distinct pair of values, for strata).
+
+**The proof:** the Richards session, opened from the homepage.
+- **Works:**
+  - the units table, with both verdicts;
+  - the raster and PSTH, a choice split (3 levels), the tuning curve and the
+    population heatmap;
+  - trajectories: pc_1 31%, pc_2 8%, pc_3 6% of the held-out trials' variance;
+  - pairs (a cross-correlogram), the quality panel, the region tree and levels;
+  - the probe strip, the single-trial view, and the export (18 files);
+  - the tests: responsiveness finds 86 of 455 units, with 180,321 shifts each.
+    Choice selectivity finds 0 of 455, against choices permuted within contrast
+    pairs (10,000 draws), Benjamini–Hochberg across units.
+- **Refused, with the reason on the page:**
+  - the wheel (its rate);
+  - movement controls (no movement events);
+  - decoding (BWM sessions only);
+  - the 3D view (coordinates disagree with the names);
+  - IBL's label criteria (IBL only);
+  - waveforms (not read from NWB).
+
+**Not changed:** IBL's and Phy's QC rules, `preprocess/`, `splits/` and cache keys.
+NWB sessions aren't cached; they are read from the file on each open. No
+dependency was added (pynwb, h5py and remfile are in the stack).
+
 ### 2026-10-02 — Step 4: unit QC from spike times (`qc/spike_times.py`, `configs/qc_spikes.yaml`)
 
 **What (the user's step 4):** a QC rule that needs only spike times and the task

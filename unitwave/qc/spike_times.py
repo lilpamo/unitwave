@@ -11,8 +11,9 @@ al. 2019's NWB files). This rule needs only spike times and the task period:
   at least one spike. The last part of the task shorter than a bin isn't binned. A task
   shorter than one bin leaves it undefined, and the unit fails, saying so.
 
-Spike amplitudes aren't stored for any source, so amplitude-based metrics are declared
-unavailable (UNAVAILABLE), never estimated.
+Studio doesn't read spike amplitudes from any source (Steinmetz 2019's NWB files store
+them), so amplitude-based metrics are declared unavailable (UNAVAILABLE), never
+estimated.
 
 Sources with their own labels keep their rule (the IBL label, the Phy group); this
 verdict is shown beside theirs, and `agreement` says how far the two agree.
@@ -42,10 +43,11 @@ _KEYS = (
     "presence_window_s",
     "min_presence_ratio",
 )
-# Metrics that need spike amplitudes, which no source stores, and why they are absent.
+# Metrics that need spike amplitudes, which Studio doesn't read from any source (some,
+# like Steinmetz 2019's NWB files, store them), and why they are absent.
 UNAVAILABLE = {
-    "amplitude_cutoff": "needs spike amplitudes, which aren't stored",
-    "amplitude_median": "needs spike amplitudes, which aren't stored",
+    "amplitude_cutoff": "needs spike amplitudes, which Studio doesn't read",
+    "amplitude_median": "needs spike amplitudes, which Studio doesn't read",
 }
 # Criteria a reason can name, by its opening words, across this rule and the sources'
 # own rules (qc.units, qc.phy), for `agreement`.
