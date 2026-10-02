@@ -93,6 +93,7 @@ from unitwave.analysis.trial_view import (
     trial_view,
 )
 from unitwave.analysis.tuning import (
+    circular_selectivity,
     load_selectivity_config,
     selectivity,
     tuning_curve,
@@ -343,7 +344,7 @@ class Studio:
             "probe_colours": {theme: probe_colours(self.probes, theme) for theme in THEMES},
             "conditions": available_conditions(self.session.trials, self.task),
             "comparisons": {
-                name: self._level_names(name, self.task.comparisons[name].levels)
+                name: self._comparison_json(name)
                 for name in available_conditions(self.session.trials, self.task)
                 if name in self.task.comparisons
             },
@@ -442,6 +443,13 @@ class Studio:
             "label": f"NWB file · {Path(s.file).name} · {layout.label}",
             "report": REPORTS.get(self.session.eid),
         }
+
+    def _comparison_json(self, name: str):
+        """A two-level comparison's level names, [a, b]; a circular one's kind and period."""
+        c = self.task.comparisons[name]
+        if c.kind == "circular":
+            return {"kind": "circular", "period": c.period, "window": c.window_label}
+        return self._level_names(name, c.levels)
 
     def _qc_info(self) -> dict:
         """Which rule decides QC here, and the spike-time rule shown beside it."""
@@ -583,7 +591,10 @@ class Studio:
         chosen = self._selectivity.get(self._selectivity_key(q))
         if chosen is not None:
             t = chosen.reindex(rows.index)
-            rows = rows.assign(sel_auroc=t["auroc"], sel_p=t["p"], sel_q=t["q"], sel=t["selective"])
+            stat = t["auroc"] if "auroc" in t else t["index"]
+            rows = rows.assign(sel_auroc=stat, sel_p=t["p"], sel_q=t["q"], sel=t["selective"])
+            if "preferred_deg" in t:
+                rows = rows.assign(sel_preferred=t["preferred_deg"])
         tested_pairs = self._connections.get(self._pairs_key(q))
         if tested_pairs is not None:
             hit = tested_pairs[tested_pairs["connected"]]
@@ -882,20 +893,49 @@ class Studio:
             if not ids:
                 raise ValueError("no units to test")
             # The full table and a mask: block pseudo-sessions span the whole session.
-            self._selectivity[key] = selectivity(
-                self.session.spikes,
-                ids,
-                self.session.trials,
-                q["event"],
-                q["split"],
-                self.response_cfg,
-                self.selectivity_cfg,
-                trial_mask=self._trials(q)[1].mask,
-                task=self.task,
-            )
+            comparison = self.task.comparisons.get(q["split"])
+            if comparison is not None and comparison.kind == "circular":
+                self._selectivity[key] = circular_selectivity(
+                    self.session.spikes,
+                    ids,
+                    self.session.trials,
+                    q["event"],
+                    q["split"],
+                    self.response_cfg,
+                    self.selectivity_cfg,
+                    trial_mask=self._trials(q)[1].mask,
+                    task=self.task,
+                )
+            else:
+                self._selectivity[key] = selectivity(
+                    self.session.spikes,
+                    ids,
+                    self.session.trials,
+                    q["event"],
+                    q["split"],
+                    self.response_cfg,
+                    self.selectivity_cfg,
+                    trial_mask=self._trials(q)[1].mask,
+                    task=self.task,
+                )
         return self._selectivity_summary(self._selectivity[key], q)
 
     def _selectivity_summary(self, t: pd.DataFrame, q: dict) -> dict:
+        if "index" in t:  # circular
+            return {
+                "kind": "circular",
+                "condition": self._condition_label(q["split"]),
+                "period": float(t["period_deg"].iloc[0]),
+                "n_tests": int(t["n_tests"].iloc[0]),
+                "n_selective": int(t["selective"].sum()),
+                "n_silent": int(t["index"].isna().sum()),
+                "n_trials": int(t["n_trials"].iloc[0]),
+                "null": t["null"].iloc[0],
+                "n_null": int(t["n_null"].iloc[0]),
+                "window": t["window"].iloc[0],
+                "seed": int(t["seed"].iloc[0]),
+                "probes": sorted(self.units.loc[t.index, "probe"].unique()),
+            }
         names = self._level_names(q["split"], self.task.comparisons[q["split"]].levels)
         higher_b = t["selective"] & (t["auroc"] > 0.5)
         return {
@@ -1016,7 +1056,12 @@ class Studio:
         split = q.get("split", "")
         if not split:
             raise ValueError("choose a condition to split by for a tuning curve")
+        # The response window, or the seconds a split's own test declares (Allen's
+        # gratings: the whole presentation), so the curve shows what the test tests.
         window = self.response_cfg.response_window
+        comparison = self.task.comparisons.get(split)
+        if comparison is not None and not isinstance(comparison.window, str):
+            window = comparison.window
         trials, sel = self._trials(q)
         spikes = self.session.spikes[q["unit"]]
         curve = tuning_curve(spikes, trials, q["event"], split, window, self.task)
@@ -1663,10 +1708,17 @@ class App:
 
 def default_trials(trials: pd.DataFrame, cfg, task: TaskDefinition | None = None) -> TrialFilter:
     """configs/catalog.yaml's default trial filter (IBL's), minus what this session can't
-    support. Another task starts with every trial."""
+    support. Another task starts with the filters its definition turns on (e.g. Allen's
+    invalid data), where the table supports them; else with every trial."""
     task = task if task is not None else load_task()
     if task.name != DEFAULT_TASK:
-        return TrialFilter(task)
+        offered = available_trial_filters(trials, task)
+        on = {
+            name: True
+            for name, f in task.trial_filters.items()
+            if f.default and offered[name]["available"]
+        }
+        return TrialFilter(task, **on)
     offered = available_trial_filters(trials, task)
     default = cfg.default_trial_filter
     chosen = {k: v for k, v in default.items() if offered[k]["available"]}

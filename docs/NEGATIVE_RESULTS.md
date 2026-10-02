@@ -5,6 +5,44 @@ in this repo. One entry per experiment, newest first.
 
 ---
 
+### 2026-10-02 — Responsiveness's shift null has almost no power for periodic presentations
+
+**What was tried:** Studio's responsiveness test on the Allen Visual Coding session
+(DANDI 000021, ses-721123822), for each passive task.
+- **The test:** the mean of response (0–300 ms) minus baseline (−200–0 ms), against
+  the spike train circularly shifted, BH across units, as built for IBL.
+- **The tasks:** flashes, static gratings and drifting gratings.
+
+**Hypothesis:** visual units respond to flashes and gratings, so many would be labelled
+responsive, as on IBL stimulus onsets.
+
+**Result:**
+- **Flashes:** 0 of 430 QC units responsive. The most flash-driven unit (+27.9 Hz
+  over baseline) gets p = 0.014 against 56,001 shifts, and nothing survives BH. Yet
+  171 of 430 units tell dark from light flashes.
+- **Static gratings:** 15 of 448.
+- **Drifting gratings:** 229 of 447.
+
+**Why it failed:**
+- **Flashes are strictly periodic:** every 2.002 s, with no gaps. Shifting the spike
+  train by any whole number of periods re-aligns it with the flashes, so the null
+  holds near-copies of the true response and the test loses its power. It errs
+  conservative (it misses responses; it doesn't invent them), but "0 responsive"
+  reads as a finding.
+- **Static gratings run back to back** every 0.250 s. The baseline window lies inside
+  the previous presentation's response, so response and baseline barely differ.
+- **Drifting gratings** recur every 3.003 s, but in three blocks with gaps, so most
+  shifts don't re-align. Some power remains.
+
+**Do not retry unless:** the null is built for presentations. Options:
+- compare against blank presentations or the spontaneous intervals;
+- use a paired test of response against baseline within presentations, with
+  presentations spaced apart;
+- refuse the shift test when events are periodic.
+
+Until then, Studio's responsiveness counts for these tasks aren't findings. The
+choice of fix is the user's.
+
 ### 2026-09-30 — Phase 3 decision gate: NOT PASSED on the confirmation set; Phase 3 parked
 
 **Gate:** `model_with_task` vs `null_trialstruct`, per target, one-sided Wilcoxon

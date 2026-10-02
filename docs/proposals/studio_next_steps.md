@@ -160,7 +160,23 @@ The plan, as written:
   - the capability report on it;
   - refusals for an unsupported layout.
 
-### Step 6. Allen Brain Observatory Visual Coding (Neuropixels) — planned
+### Step 6. Allen Brain Observatory Visual Coding (Neuropixels) — built (2026-10-02)
+
+Built (`docs/DECISIONS.md`, "Step 6"):
+- the DANDI 000021 layout (`configs/nwb/allen_visual_coding.yaml`);
+- tasks for drifting gratings, static gratings and flashes;
+- a circular (orientation/direction) selectivity test, with a permutation null within
+  strata and Benjamini–Hochberg across units.
+
+Session ses-721123822 opens from the homepage under each task, and every view works
+or refuses with its reason. Differences from the plan:
+- **Natural scenes** aren't defined yet (the user chose three stimuli).
+- **Responsiveness on periodic presentations** has almost no power: 0 of 430 units
+  for flashes, 15 of 448 for static gratings (`docs/NEGATIVE_RESULTS.md`). Fixing it
+  changes the signed-off test, so it is left for the user.
+- **The 3D view is disabled:** the file's `z` coordinate repeats `y`.
+
+The plan, as written:
 
 A passive task: stimulus presentations instead of decision trials, and many
 stimulus conditions (e.g. orientation, spatial frequency).

@@ -6,6 +6,110 @@ first.
 
 ---
 
+### 2026-10-02 — Step 6: Allen Brain Observatory Visual Coding, passive tasks (`configs/nwb/allen_visual_coding.yaml`, `configs/tasks/allen_*.yaml`, circular selectivity)
+
+**The source:** DANDI 000021, Allen Institute Visual Coding Neuropixels (Brain
+Observatory 1.1 stimulus set), version 0.251116.2246.
+- **The dandiset:** 32 session files (80.5 GB) and 182 per-probe LFP files (397.1 GB).
+  Studio reads only session files.
+- **Downloaded (the user's OK):** `sub-707296975/sub-707296975_ses-721123822.nwb`,
+  1,736,516,600 bytes; its SHA-256 matches DANDI's. It is in
+  `data_root/dandi/000021/`.
+- **The download** was cut at the background task's 30-minute limit. It was resumed
+  with `curl -C -` in the user's Terminal panel, and then checked.
+
+**What the file holds, checked by hand:**
+- **Trials:** there is no trials table; each stimulus has a presentations table.
+  Each task reads its own (layout `trials.by_task`), and presentations play the role
+  of trials.
+- **Units:** 1,603, with Allen's `quality` (1,191 good, 412 noise) and AllenSDK's
+  metrics. There is no `electrode_group` column: a unit's probe is its peak
+  electrode's group (layout `probe: location_electrode`), giving 6 probes.
+- **Regions:** `peak_channel_id` is an electrode id, not a row (new location kind
+  `electrode_id`). There are 19 Allen regions.
+  - 13 units have an empty location. It is read as missing, never as a region.
+- **Depth:** `probe_vertical_position` counts µm up from the tip. On every probe,
+  deep structures lie at 20–2,500 µm, then cortex, then electrodes outside the
+  brain.
+- **Coordinates:** the electrodes' `z` repeats `y` on all 2,304 electrodes, so
+  left–right is missing. The 3D view is disabled, with that reason (146 of 1,795
+  named electrodes agree with their names at Beryl level).
+- **Numbers stored as text** (`spatial_frequency`, `phase`, the flash `color`) are
+  read as numbers. `'N/A'` and `'None'` are read as missing. Text that isn't numbers
+  (e.g. `size`) is kept as text. The capability report lists each conversion.
+- **Invalid times:** five per-probe intervals (probes E and F). Presentations
+  overlapping them are marked (`invalid_overlap`, layout
+  `trials.mark_invalid_times`).
+- **Behaviour:** running speed has timestamps and is read. There is no pupil; the
+  other running and optotagging series are listed as not read.
+
+**Decisions (the user's, 2026-10-02):**
+- **Unit QC:** `quality == good` plus AllenSDK's default thresholds, plus the
+  task-period rate of at least 0.1 Hz.
+  - The thresholds are `isi_violations` ≤ 0.5, `amplitude_cutoff` ≤ 0.1 and
+    `presence_ratio` ≥ 0.9. They are inclusive, as in AllenSDK's code (its docs say
+    < and >).
+  - The layout's quality block now takes several criteria. Steinmetz's one-column
+    form reads as before.
+  - 447 of 1,603 units pass during drifting gratings, 448 during static gratings and
+    430 during flashes.
+- **Invalid data:** presentations overlapping invalid times are excluded by default.
+  The filter can be lifted, and every caption counts what it excludes (static
+  gratings: 328 of 6,000). Trial filters can now be declared `default: true` for
+  non-IBL tasks.
+- **Three tasks:** drifting gratings, static gratings and flashes. Natural scenes
+  aren't defined yet.
+- **A circular selectivity test** (`tuning.circular_selectivity`):
+  - **Statistic:** the vector-sum index |Σ r e^(2πiθ/period)| / Σ r over
+    presentations, and the preferred angle.
+  - **Null:** the angles permuted within the declared strata (10,000 draws, seeded).
+  - **Test:** one-sided, with Benjamini–Hochberg across units.
+  - A unit silent in the window has no index and isn't selective.
+  - Task definitions declare it as `circular: {period}`. Comparisons may also give a
+    window in seconds (`window: [start, stop]`), and a tuning curve then uses that
+    window.
+  - A new derivation, `orientation_of_direction`, folds a direction onto 0–180°.
+
+**The tasks:**
+- **Drifting gratings** (2 s presentations):
+  - **Conditions:** direction, orientation (derived) and temporal frequency.
+  - **Tests:** direction (period 360) and orientation (period 180), each over 0–2 s,
+    with angles permuted within temporal frequency.
+- **Static gratings** (0.25 s):
+  - **Conditions:** orientation, spatial frequency and phase.
+  - **Test:** orientation (period 180) over 0–0.25 s, permuted within each spatial
+    frequency and phase.
+- **Flashes:** dark against light, AUROC over 0–0.25 s, against a plain permutation.
+- **Blanks:** presentations without a grating are excluded and counted (30 for
+  drifting gratings, 196 for static gratings).
+
+**The proof (opened from the homepage; each task takes about 15 s to open):**
+- **Drifting gratings:**
+  - responsiveness: 229 of 447 units;
+  - direction-selective: 109 of 447;
+  - orientation-selective: 244 of 447 (598 presentations).
+- **Static gratings:**
+  - responsiveness: 15 of 448 units;
+  - orientation-selective: 239 of 448 (5,492 presentations).
+- **Flashes:**
+  - responsiveness: 0 of 430 units;
+  - dark/light-selective: 171 of 430 (63 higher for light, 108 for dark).
+- **Works:** split PSTHs and tuning curves over 6–8 angles, the population heatmap,
+  trajectories, pairs, the quality panel, the region tree and levels, the probe
+  strip, and the single-trial view (each presentation's parameters).
+- **Refused, with the reason on the page:** movement controls (no movement events),
+  the wheel (not mapped), decoding (BWM only) and the 3D view (`z` repeats `y`).
+
+**Found, and not fixed here:** the responsiveness counts for these tasks aren't
+findings (`docs/NEGATIVE_RESULTS.md`, 2026-10-02). The shift null has almost no
+power when presentations are periodic (flashes every 2.002 s) or back to back
+(static gratings). The fix changes the signed-off responsiveness test, so it is the
+user's call.
+
+**Not changed:** the IBL, Phy and Steinmetz behaviour; the golden record is
+unchanged. `preprocess/`, `splits/` and cache keys are untouched. No dependency was
+added.
+
 ### 2026-10-02 — Step 5: NWB intake, proven on Steinmetz et al. 2019 (`nwb/intake.py`, `configs/nwb/`, `configs/tasks/steinmetz.yaml`, `qc/nwb.py`)
 
 **What (the user's step 5):** Studio opens NWB files.

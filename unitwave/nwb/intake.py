@@ -50,32 +50,55 @@ from unitwave.nwb.probe import _all_series, open_nwb
 LAYOUTS_DIR = Path(__file__).resolve().parents[2] / "configs" / "nwb"
 # Session eid -> the capability report of the file it was read from, for Studio.
 REPORTS: dict[str, dict] = {}
-LOCATION_KINDS = ("peak_channel", "electrodes", "units_column")
+LOCATION_KINDS = ("peak_channel", "electrode_id", "electrodes", "units_column")
+# Text that means "no value" in a column of numbers stored as text (Allen's "N/A").
+MISSING_TEXT = ("N/A", "NA", "null", "None", "nan", "NaN", "")
 _POSITIONS = "positions aren't read from NWB files: no coordinate convention is verified"
 
 
 # ---------- layouts: what a dataset's NWB files hold, declared ----------
 @dataclass(frozen=True)
-class Quality:
-    column: str
-    pass_at_least: float | None
-    pass_values: tuple | None
-    names: dict
+class Criterion:
+    """One quality criterion on a units column: at_least / at_most a value, or values."""
 
-    def describe(self) -> str:
-        rule = (
-            f"passes at {self.pass_at_least:g} or more"
-            if self.pass_at_least is not None
-            else f"passes at {', '.join(map(str, self.pass_values))}"
-        )
-        named = ", ".join(f"{n} {v:g}" for v, n in sorted(self.names.items()))
-        return f"{self.column}: {rule}" + (f" ({named})" if named else "")
+    column: str
+    op: str  # "at_least", "at_most" or "values"
+    value: object
 
     def passes(self, values: np.ndarray) -> np.ndarray:
-        values = np.asarray(values)
-        if self.pass_at_least is not None:
-            return np.asarray(values, np.float64) >= self.pass_at_least
-        return np.isin(values, self.pass_values)
+        if self.op == "values":
+            return np.isin(np.asarray(values), self.value)
+        numbers = np.asarray(values, np.float64)
+        with np.errstate(invalid="ignore"):
+            return numbers >= self.value if self.op == "at_least" else numbers <= self.value
+
+
+@dataclass(frozen=True)
+class Quality:
+    """A dataset's own unit quality rule: every criterion must pass. `column` is the one
+    shown as the unit's label (stored as units 'quality'; other criteria columns as
+    'quality_<column>'), named by `names`."""
+
+    column: str
+    criteria: tuple
+    names: dict
+
+    def stored(self, column: str) -> str:
+        return "quality" if column == self.column else f"quality_{column}"
+
+    def describe(self) -> str:
+        named = ", ".join(f"{n} {v:g}" for v, n in sorted(self.names.items()))
+        named = f" ({named})" if named else ""
+        if len(self.criteria) == 1 and self.criteria[0].op == "at_least":
+            c = self.criteria[0]
+            return f"{c.column}: passes at {c.value:g} or more{named}"
+        rules = []
+        for c in self.criteria:
+            if c.op == "values":
+                rules.append(f"{c.column} in {list(c.value)}")
+            else:
+                rules.append(f"{c.column} {c.op.replace('_', ' ')} {c.value:g}")
+        return "; ".join(rules) + named
 
 
 @dataclass(frozen=True)
@@ -88,6 +111,13 @@ class NwbLayout:
     quality: Quality | None
     behaviour: dict
     positions_reason: str
+    depth_electrodes_column: str | None = None  # depth from the unit's electrode
+    # The unit's probe: its units.electrode_group, or the group of the electrode its
+    # location comes from (Allen's units have no electrode_group column).
+    probe_source: str = "electrode_group"
+    trials_by_task: dict = field(default_factory=dict)  # task -> intervals table
+    trials_table: str | None = None  # intervals table for any other task
+    mark_invalid_times: bool = False
     raw: dict = field(repr=False, compare=False, default_factory=dict)
 
 
@@ -102,17 +132,70 @@ def _need(where: str, raw, keys: set, optional: set = frozenset()) -> None:
         raise ValueError(f"{where}: unknown keys {unknown}, missing keys {missing}")
 
 
+def _criterion(where: str, raw) -> Criterion:
+    _need(where, raw, {"column"}, {"at_least", "at_most", "values"})
+    ops = [k for k in ("at_least", "at_most", "values") if k in raw]
+    if len(ops) != 1:
+        raise ValueError(f"{where}: give one of at_least, at_most or values")
+    op = ops[0]
+    value = tuple(raw[op]) if op == "values" else float(raw[op])
+    return Criterion(str(raw["column"]), op, value)
+
+
+def _quality(q) -> Quality:
+    """Either one column (column with pass_at_least or pass_values), or a label column
+    and a list of criteria."""
+    if isinstance(q, dict) and "criteria" in q:
+        _need("units quality", q, {"label", "criteria"}, {"names"})
+        criteria = tuple(
+            _criterion(f"units quality criterion {i + 1}", c) for i, c in enumerate(q["criteria"])
+        )
+        if not criteria:
+            raise ValueError("units quality: give at least one criterion")
+        column = str(q["label"])
+    else:
+        _need("units quality", q, {"column"}, {"pass_at_least", "pass_values", "names"})
+        if ("pass_at_least" in q) == ("pass_values" in q):
+            raise ValueError("units quality: give either pass_at_least or pass_values")
+        column = str(q["column"])
+        if "pass_at_least" in q:
+            criteria = (Criterion(column, "at_least", float(q["pass_at_least"])),)
+        else:
+            criteria = (Criterion(column, "values", tuple(q["pass_values"])),)
+    names = {float(k): str(v) for k, v in (q.get("names") or {}).items()}
+    return Quality(column, criteria, names)
+
+
 def layout_from_dict(raw: dict) -> NwbLayout:
     """A validated layout; anything malformed is refused, saying where and why."""
-    _need("NWB layout", raw, {"name", "label", "units"}, {"task", "behaviour", "positions"})
+    _need(
+        "NWB layout", raw, {"name", "label", "units"}, {"task", "trials", "behaviour", "positions"}
+    )
+    trials = raw.get("trials") or {}
+    _need("trials", trials, set(), {"by_task", "table", "mark_invalid_times"})
+    by_task = trials.get("by_task") or {}
+    if not isinstance(by_task, dict) or not all(isinstance(t, str) for t in by_task.values()):
+        raise ValueError("trials by_task: map each task to an intervals table")
     units = raw["units"]
     _need("units", units, set(), {"probe", "depth", "location", "quality"})
-    if units.get("probe", "electrode_group") != "electrode_group":
-        raise ValueError("units probe: only electrode_group is read")
-    depth = None
+    probe_source = units.get("probe", "electrode_group")
+    if probe_source not in ("electrode_group", "location_electrode"):
+        raise ValueError("units probe: electrode_group, or location_electrode")
+    depth = depth_electrodes = None
     if "depth" in units:
-        _need("units depth", units["depth"], {"column"})
-        depth = str(units["depth"]["column"])
+        d = units["depth"]
+        if (
+            not isinstance(d, dict)
+            or len(d) != 1
+            or next(iter(d))
+            not in (
+                "column",
+                "electrodes_column",
+            )
+        ):
+            raise ValueError("units depth: give a column or an electrodes_column")
+        depth = str(d["column"]) if "column" in d else None
+        depth_electrodes = str(d["electrodes_column"]) if "electrodes_column" in d else None
     location = None
     if "location" in units:
         loc = units["location"]
@@ -122,21 +205,14 @@ def layout_from_dict(raw: dict) -> NwbLayout:
         options = options or {}
         if kind == "peak_channel":
             _need("units location peak_channel", options, {"column", "first"})
+        elif kind == "electrode_id":
+            _need("units location electrode_id", options, {"column"})
         elif kind == "units_column":
             _need("units location units_column", options, {"column"})
         location = (kind, dict(options))
     quality = None
     if "quality" in units:
-        q = units["quality"]
-        _need("units quality", q, {"column"}, {"pass_at_least", "pass_values", "names"})
-        if ("pass_at_least" in q) == ("pass_values" in q):
-            raise ValueError("units quality: give either pass_at_least or pass_values")
-        quality = Quality(
-            column=str(q["column"]),
-            pass_at_least=float(q["pass_at_least"]) if "pass_at_least" in q else None,
-            pass_values=tuple(q["pass_values"]) if "pass_values" in q else None,
-            names={float(k): str(v) for k, v in (q.get("names") or {}).items()},
-        )
+        quality = _quality(units["quality"])
     behaviour = raw.get("behaviour") or {}
     if not isinstance(behaviour, dict) or not all(isinstance(p, str) for p in behaviour.values()):
         raise ValueError("behaviour: map each name to a path in the file")
@@ -151,6 +227,11 @@ def layout_from_dict(raw: dict) -> NwbLayout:
         quality=quality,
         behaviour={str(k): str(v) for k, v in behaviour.items()},
         positions_reason=str(positions["refused"]),
+        depth_electrodes_column=depth_electrodes,
+        probe_source=probe_source,
+        trials_by_task={str(k): str(v) for k, v in by_task.items()},
+        trials_table=trials.get("table"),
+        mark_invalid_times=bool(trials.get("mark_invalid_times", False)),
         raw=raw,
     )
 
@@ -220,8 +301,9 @@ def _electrode_groups(nwb) -> np.ndarray:
     return _strings([g.name for g in table["group"].data[:]])
 
 
-def _locations(nwb, units, ids, probes, layout: NwbLayout) -> tuple[np.ndarray | None, str, str]:
-    """(per-unit location names or None, where they came from, why not if None)."""
+def _locations(nwb, units, ids, probes, layout: NwbLayout):
+    """(per-unit location names or None, each unit's electrode row or None, where the
+    names came from, why not if None)."""
     kind, options = layout.location or (None, {})
     names = units.colnames
     if kind is None:  # GENERIC: the file's standard columns
@@ -230,14 +312,14 @@ def _locations(nwb, units, ids, probes, layout: NwbLayout) -> tuple[np.ndarray |
         elif "electrodes" in names and nwb.electrodes is not None:
             kind = "electrodes"
         else:
-            return None, "", "the units have no location and no electrodes"
+            return None, None, "", "the units have no location and no electrodes"
     if kind == "units_column":
         column = options["column"]
         if column not in names:
-            return None, "", f"the units have no {column} column"
-        return _strings(units[column].data[:]), f"units.{column}", ""
+            return None, None, "", f"the units have no {column} column"
+        return _strings(units[column].data[:]), None, f"units.{column}", ""
     if nwb.electrodes is None or "location" not in nwb.electrodes.colnames:
-        return None, "", "the file has no electrodes table with a location column"
+        return None, None, "", "the file has no electrodes table with a location column"
     where = _strings(nwb.electrodes["location"].data[:])
     groups = _electrode_groups(nwb)
     if kind == "electrodes":
@@ -247,16 +329,26 @@ def _locations(nwb, units, ids, probes, layout: NwbLayout) -> tuple[np.ndarray |
     else:
         column = options["column"]
         if column not in names:
-            return None, "", f"the units have no {column} column"
-        rows = np.asarray(units[column].data[:]).ravel().astype(np.int64) - int(options["first"])
-        source = f"electrodes.location at {column} - {int(options['first'])}"
-        how = f"{column} - {int(options['first'])} gives"
+            return None, None, "", f"the units have no {column} column"
+        values = np.asarray(units[column].data[:]).ravel().astype(np.int64)
+        if kind == "electrode_id":
+            row_of = {int(i): k for k, i in enumerate(nwb.electrodes.id[:])}
+            rows = np.array([row_of.get(int(v), -1) for v in values], dtype=np.int64)
+            source = f"electrodes.location at {column} (an electrode id)"
+            how = f"{column} names no electrode, or"
+        else:
+            rows = values - int(options["first"])
+            source = f"electrodes.location at {column} - {int(options['first'])}"
+            how = f"{column} - {int(options['first'])} gives"
     inside = (rows >= 0) & (rows < len(where))
-    own = inside & (groups[np.clip(rows, 0, len(where) - 1)] == probes)
+    own = (
+        inside if probes is None else inside & (groups[np.clip(rows, 0, len(where) - 1)] == probes)
+    )
     if not own.all():
         bad = [ids[i] for i in np.flatnonzero(~own)]
         n = len(bad)
         return (
+            None,
             None,
             source,
             (
@@ -264,7 +356,7 @@ def _locations(nwb, units, ids, probes, layout: NwbLayout) -> tuple[np.ndarray |
                 f"({', '.join(bad[:5])}{', …' if n > 5 else ''}): regions aren't read"
             ),
         )
-    return where[rows], source, ""
+    return where[rows], rows, source, ""
 
 
 def _series_at(nwb, path: str):
@@ -314,11 +406,31 @@ def _behaviour(nwb, layout: NwbLayout) -> tuple[dict, dict, dict]:
     return loaded, report, why_not
 
 
-def _trials(nwb) -> tuple[pd.DataFrame, list[str]]:
-    """The trials table, scalar columns only; (table, columns skipped)."""
-    table, skipped = {}, []
-    for name in nwb.trials.colnames:
-        column = nwb.trials[name]
+def _as_numbers(values: np.ndarray) -> tuple[np.ndarray, list[str]] | None:
+    """Text that is all numbers or missing markers, as floats with NaN for the markers
+    (and the markers found); None when any value is other text."""
+    out = np.empty(len(values), dtype=np.float64)
+    found = []
+    for i, v in enumerate(values):
+        text = v.strip()
+        if text in MISSING_TEXT:
+            out[i] = np.nan
+            if text not in found:
+                found.append(text)
+            continue
+        try:
+            out[i] = float(text)
+        except ValueError:
+            return None
+    return out, found
+
+
+def _trials(table) -> tuple[pd.DataFrame, list[str], dict]:
+    """A trials or intervals table, scalar columns only; (table, columns skipped,
+    text columns read as numbers -> how)."""
+    out, skipped, converted = {}, [], {}
+    for name in table.colnames:
+        column = table[name]
         if hasattr(column, "target"):  # ragged: not a value per trial
             skipped.append(name)
             continue
@@ -326,13 +438,43 @@ def _trials(nwb) -> tuple[pd.DataFrame, list[str]]:
         if values.ndim != 1:
             skipped.append(name)
         elif values.dtype == bool or np.issubdtype(values.dtype, np.number):
-            table[name] = values.astype(np.float64)
+            out[name] = values.astype(np.float64)
         else:
-            table[name] = _strings(values)
-    trials = pd.DataFrame(table).rename(
+            text = _strings(values)
+            numbers = _as_numbers(text)
+            if numbers is None:
+                out[name] = text
+            else:
+                out[name], markers = numbers
+                how = "numbers stored as text"
+                if markers:
+                    how += f"; {', '.join(repr(m) for m in markers)} read as missing"
+                converted[name] = how
+    trials = pd.DataFrame(out).rename(
         columns={"start_time": "intervals_0", "stop_time": "intervals_1"}
     )
-    return trials, skipped
+    return trials, skipped, converted
+
+
+def _invalid_overlap(nwb, trials: pd.DataFrame) -> tuple[np.ndarray, list[str]]:
+    """(n_trials,) 1 where a trial overlaps one of the file's invalid times, else 0; and
+    the invalid times, described."""
+    table = nwb.invalid_times
+    flags = np.zeros(len(trials))
+    if table is None or not len(table):
+        return flags, []
+    starts = np.asarray(table["start_time"].data[:], np.float64)
+    stops = np.asarray(table["stop_time"].data[:], np.float64)
+    tags = [list(t) for t in table["tags"][:]] if "tags" in table.colnames else [[]] * len(starts)
+    t0 = trials["intervals_0"].to_numpy(np.float64)
+    t1 = trials["intervals_1"].to_numpy(np.float64)
+    for a, b in zip(starts, stops):
+        flags[(t0 < b) & (t1 > a)] = 1.0
+    described = [
+        f"{a:.1f}–{b:.1f} s" + (f" ({', '.join(map(str, t))})" if t else "")
+        for a, b, t in zip(starts, stops, tags)
+    ]
+    return flags, described
 
 
 def _time_bounds(spikes: dict, trials: pd.DataFrame, behaviour: dict) -> tuple[float, float]:
@@ -347,8 +489,11 @@ def _time_bounds(spikes: dict, trials: pd.DataFrame, behaviour: dict) -> tuple[f
     return float(min(firsts)), float(max(lasts))
 
 
-def read_nwb(path: str | os.PathLike, layout: NwbLayout = GENERIC) -> Intake:
-    """The Session of one NWB file under a layout, and its capability report."""
+def read_nwb(
+    path: str | os.PathLike, layout: NwbLayout = GENERIC, task: str | None = None
+) -> Intake:
+    """The Session of one NWB file under a layout, and its capability report. task: the
+    task definition's name, for a layout whose tasks' trials are presentation tables."""
     path = Path(path)
     with open_nwb(str(path)) as nwb:
         units = nwb.units
@@ -357,14 +502,35 @@ def read_nwb(path: str | os.PathLike, layout: NwbLayout = GENERIC) -> Intake:
                 f"{path.name}: no spike-sorted units (no units table with spike times). "
                 "Studio needs them"
             )
-        if nwb.trials is None:
+        intervals = layout.trials_by_task.get(task) or layout.trials_table
+        if intervals is not None:
+            if intervals not in (nwb.intervals or {}):
+                raise ValueError(
+                    f"{path.name}: no {intervals} intervals table, where the {layout.label} "
+                    f"layout reads {task or 'the'} task's presentations from"
+                )
+            trials_table, trials_source = nwb.intervals[intervals], f"intervals/{intervals}"
+        elif nwb.trials is None:
             raise ValueError(
                 f"{path.name}: no trials table. Studio needs each trial's start and end "
                 "(the task period)"
             )
+        else:
+            trials_table, trials_source = nwb.trials, "trials"
         flat, starts = _ragged_first(units["spike_times"])
         ends = np.append(starts[1:], flat.size)
-        if "electrode_group" in units.colnames:
+        if layout.probe_source == "location_electrode":
+            # The probe is the group of the unit's own electrode: found first, checked only
+            # for existing (it can't lie on another probe than itself).
+            locations, rows, source, why = _locations(
+                nwb, units, [f"unit {i}" for i in units.id[:]], None, layout
+            )
+            if rows is None:
+                raise ValueError(
+                    f"{path.name}: the units' probes come from their electrodes, and {why}"
+                )
+            probes = _electrode_groups(nwb)[rows]
+        elif "electrode_group" in units.colnames:
             probes = _strings([g.name for g in units["electrode_group"].data[:]])
         else:
             probes = np.full(len(units), "units", dtype=object)
@@ -372,14 +538,28 @@ def read_nwb(path: str | os.PathLike, layout: NwbLayout = GENERIC) -> Intake:
         spikes = {u: np.sort(flat[a:b].astype(np.float64)) for u, a, b in zip(ids, starts, ends)}
         table = pd.DataFrame({"probe_name": probes}, index=pd.Index(ids, name="unit_id"))
         missing = {}
+        if layout.quality is not None:
+            for column in dict.fromkeys(
+                [layout.quality.column, *(c.column for c in layout.quality.criteria)]
+            ):
+                values = np.asarray(units[column].data[:]).ravel()
+                stored = layout.quality.stored(column)
+                table[stored] = _strings(values) if values.dtype.kind in "OSU" else values
+        if layout.probe_source != "location_electrode":
+            locations, rows, source, why = _locations(nwb, units, ids, probes, layout)
         if layout.depth_column:
             table["depths"] = np.asarray(units[layout.depth_column].data[:], np.float64)
+        elif layout.depth_electrodes_column and rows is not None:
+            column = nwb.electrodes[layout.depth_electrodes_column].data[:]
+            table["depths"] = np.asarray(column, np.float64)[rows]
+        elif layout.depth_electrodes_column:
+            missing["units.depths"] = f"depth comes from the unit's electrode, and {why}"
         else:
             missing["units.depths"] = f"the {layout.label} layout declares no depth column"
-        if layout.quality is not None:
-            table["quality"] = np.asarray(units[layout.quality.column].data[:]).ravel()
-        locations, source, why = _locations(nwb, units, ids, probes, layout)
-        trials, skipped = _trials(nwb)
+        trials, skipped, converted = _trials(trials_table)
+        invalid = []
+        if layout.mark_invalid_times:
+            trials["invalid_overlap"], invalid = _invalid_overlap(nwb, trials)
         behaviour, behaviour_report, behaviour_why = _behaviour(nwb, layout)
         mapped = set(layout.behaviour.values())
         not_read = sorted(p for p in _all_series(nwb) if p not in mapped)
@@ -389,7 +569,11 @@ def read_nwb(path: str | os.PathLike, layout: NwbLayout = GENERIC) -> Intake:
         missing["units.acronym"] = why
         regions = {"refused": why}
     else:
+        # An empty name is a missing location (Allen's electrodes outside the brain), not a
+        # region: counted, never filled.
+        locations = np.array([n if n.strip() else None for n in locations], dtype=object)
         table["location"] = locations
+        no_location = int(sum(n is None for n in locations))
         try:
             check_allen(locations)
         except ValueError as e:
@@ -398,6 +582,7 @@ def read_nwb(path: str | os.PathLike, layout: NwbLayout = GENERIC) -> Intake:
         else:
             table["acronym"] = locations
             regions = {"source": source, "allen": True}
+        regions["no_location"] = no_location
     for f in ("x", "y", "z"):
         missing[f"units.{f}"] = layout.positions_reason
     missing["units.label"] = "IBL's numeric QC label; a declared NWB quality column is 'quality'"
@@ -435,7 +620,14 @@ def read_nwb(path: str | os.PathLike, layout: NwbLayout = GENERIC) -> Intake:
         },
         "regions": regions,
         "positions": {"refused": layout.positions_reason},
-        "trials": {"n": len(trials), "columns": list(trials.columns), "not_read": skipped},
+        "trials": {
+            "source": trials_source,
+            "n": len(trials),
+            "columns": list(trials.columns),
+            "not_read": skipped,
+            "converted": converted,
+            "invalid_times": invalid,
+        },
         "behaviour": behaviour_report,
         "not_read": not_read,
     }

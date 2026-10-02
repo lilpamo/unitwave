@@ -105,6 +105,11 @@ def _difference(trials, columns):
     return a - trials[columns[1]].to_numpy(np.float64), None
 
 
+def _orientation_of_direction(trials, columns):
+    """A direction in degrees folded onto orientation, [0, 180): 270 is 90."""
+    return np.mod(trials[columns[0]].to_numpy(np.float64), 180.0), None
+
+
 def _combination(trials, columns):
     """A number for each distinct pair of values, in sorted order (0, 1, ...); NaN where
     either is missing. For strata: e.g. Steinmetz's left and right contrasts."""
@@ -127,6 +132,7 @@ DERIVATIONS: dict[str, tuple[int, Callable]] = {
     "median_split_difference": (2, _median_split_difference),
     "difference": (2, _difference),
     "combination": (2, _combination),
+    "orientation_of_direction": (1, _orientation_of_direction),
 }
 
 
@@ -179,10 +185,24 @@ class StrataSpec:
 
 @dataclass(frozen=True)
 class Comparison:
-    levels: tuple[float, float]
+    """Two levels (AUROC), or circular (a vector-sum index over a condition holding angles
+    in degrees, with its period: 180 for orientation, 360 for direction)."""
+
+    levels: tuple[float, float] | None
     permute_within: str | None  # strata name, or None
     pseudo_sessions: str | None  # generator name, or None
-    window: str  # "response" or "baseline"
+    window: str | tuple  # "response", "baseline", or (start, stop) seconds from the event
+    period: float | None = None  # circular only
+
+    @property
+    def kind(self) -> str:
+        return "circular" if self.period is not None else "two_level"
+
+    @property
+    def window_label(self) -> str:
+        if isinstance(self.window, str):
+            return self.window
+        return f"{self.window[0]:g} to {self.window[1]:g} s"
 
 
 @dataclass(frozen=True)
@@ -203,6 +223,7 @@ class FilterSpec:
     undefined_reason: str
     level_names: dict = field(default_factory=dict)
     level_format: str | None = None
+    default: bool = False  # on when a session opens (flag and exclude_values only)
 
     @property
     def columns(self) -> tuple[str, ...]:
@@ -368,10 +389,19 @@ def task_from_dict(raw: dict) -> TaskDefinition:
     comparisons = {}
     for name, c in (raw.get("comparisons") or {}).items():
         where = f"comparison {name}"
-        _need(where, c, {"levels", "null_model"}, {"window"})
+        _need(where, c, {"null_model"}, {"levels", "circular", "window"})
         if name not in conditions:
             raise ValueError(f"{where}: no condition {name!r} to compare")
-        if len(c["levels"]) != 2:
+        if ("levels" in c) == ("circular" in c):
+            raise ValueError(f"{where}: give either two levels or circular (with a period)")
+        period = None
+        if "circular" in c:
+            circ = c["circular"]
+            _need(f"{where} circular", circ, {"period"})
+            period = float(circ["period"])
+            if not period > 0:
+                raise ValueError(f"{where}: the circular period must be positive (degrees)")
+        elif len(c["levels"]) != 2:
             raise ValueError(f"{where}: needs two levels, got {len(c['levels'])}")
         null = c["null_model"]
         within = generator = None
@@ -392,10 +422,16 @@ def task_from_dict(raw: dict) -> TaskDefinition:
                 f"{where}: null_model is permute_within (strata), permute: all, or pseudo_sessions"
             )
         window = c.get("window", "response")
-        if window not in ("response", "baseline"):
-            raise ValueError(f"{where}: window must be response or baseline")
-        a, b = (float(v) for v in c["levels"])
-        comparisons[name] = Comparison((a, b), within, generator, window)
+        if isinstance(window, list):
+            if len(window) != 2 or not float(window[0]) < float(window[1]):
+                raise ValueError(f"{where}: a window in seconds is [start, stop], start first")
+            window = (float(window[0]), float(window[1]))
+        elif window not in ("response", "baseline"):
+            raise ValueError(f"{where}: window must be response or baseline, or [start, stop]")
+        levels = None if period is not None else tuple(float(v) for v in c["levels"])
+        if period is not None and generator is not None:
+            raise ValueError(f"{where}: a circular comparison's null permutes its angles")
+        comparisons[name] = Comparison(levels, within, generator, window, period)
 
     movement = None
     if raw.get("movement"):
@@ -418,10 +454,20 @@ def task_from_dict(raw: dict) -> TaskDefinition:
             where,
             f,
             {"label", "kind", "reason"},
-            {"column", "derive", "values", "undefined_reason", "level_names", "level_format"},
+            {
+                "column",
+                "derive",
+                "values",
+                "undefined_reason",
+                "level_names",
+                "level_format",
+                "default",
+            },
         )
         if f["kind"] not in FILTER_KINDS:
             raise ValueError(f"{where}: kind must be flag, exclude_values or select")
+        if f.get("default") and f["kind"] == "select":
+            raise ValueError(f"{where}: only flag and exclude_values filters can be on by default")
         column, derivation = _column_or_derivation(where, f)
         filters[name] = FilterSpec(
             label=str(f["label"]),
@@ -433,6 +479,7 @@ def task_from_dict(raw: dict) -> TaskDefinition:
             undefined_reason=str(f.get("undefined_reason", "")),
             level_names={float(k): str(v) for k, v in (f.get("level_names") or {}).items()},
             level_format=f.get("level_format"),
+            default=bool(f.get("default", False)),
         )
 
     return TaskDefinition(

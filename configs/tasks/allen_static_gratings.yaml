@@ -1,0 +1,54 @@
+# Allen Brain Observatory 1.1: static gratings, a passive task. Each presentation is a
+# trial (0.25 s of a grating at one orientation, spatial frequency and phase); blanks
+# are excluded and counted. Read from DANDI 000021 with configs/nwb/allen_visual_coding.yaml.
+name: allen_static_gratings
+label: Allen static gratings (passive)
+required_columns: [intervals_0, intervals_1, orientation, spatial_frequency, phase]
+
+events:
+  stim_on: {label: Grating onset, column: intervals_0}
+
+conditions:
+  orientation:
+    label: Orientation
+    type: ordinal
+    column: orientation
+    level_format: "{v:g}°"
+    excluded: blank presentations (no grating)
+  spatial_frequency:
+    label: Spatial frequency
+    type: ordinal
+    column: spatial_frequency
+    level_format: "{v:g} cpd"
+    excluded: blank presentations (no grating)
+  phase:
+    label: Phase
+    type: ordinal
+    column: phase
+    level_format: "{v:g}"
+    excluded: blank presentations (no grating)
+
+# Orientations permuted within each spatial frequency and phase.
+strata:
+  spatial_frequency_phase:
+    derive: {name: combination, columns: [spatial_frequency, phase]}
+
+comparisons:
+  orientation:
+    circular: {period: 180}
+    null_model: {permute_within: spatial_frequency_phase}
+    window: [0.0, 0.25]
+
+behaviour:
+  traces: [running_speed]
+
+trialstruct: [orientation, spatial_frequency, phase]
+
+trial_filters:
+  valid:
+    label: Exclude presentations during invalid data
+    kind: exclude_values
+    column: invalid_overlap
+    values: [1]
+    reason: during invalid data
+    default: true

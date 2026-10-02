@@ -37,7 +37,8 @@ class NwbUnitQC:
 
     @property
     def rule(self) -> str:
-        return f"NWB quality ({self.quality.column})"
+        columns = dict.fromkeys(c.column for c in self.quality.criteria)
+        return f"NWB quality ({', '.join(columns)})"
 
 
 def load_nwb_qc_config(quality: Quality, path: str | os.PathLike = DEFAULT_CONFIG) -> NwbUnitQC:
@@ -49,37 +50,57 @@ def load_nwb_qc_config(quality: Quality, path: str | os.PathLike = DEFAULT_CONFI
 
 
 def quality_names(values, quality: Quality) -> pd.Series:
-    """Each unit's quality value, named by the layout where it names it."""
+    """Each unit's label value, named by the layout where it names it."""
     values = pd.Series(values)
-    return values.map(lambda v: quality.names.get(float(v), str(v)) if pd.notna(v) else None)
+
+    def name(v):
+        if pd.isna(v):
+            return None
+        if isinstance(v, str):
+            return v
+        return quality.names.get(float(v), f"{v:g}")
+
+    return values.map(name)
+
+
+def _shown(value, quality: Quality, column: str) -> str:
+    if isinstance(value, str):
+        return value
+    text = f"{value:.3g}"
+    name = quality.names.get(float(value)) if column == quality.column else None
+    return f"{text} ({name})" if name else text
 
 
 def nwb_unit_qc(units: pd.DataFrame, qc: NwbUnitQC) -> pd.DataFrame:
     """(n_units, 2): `passed` and `reason` ("" when passed, else every failed criterion).
 
-    units needs `quality` (the layout's column, as nwb.intake reads it) and
-    `task_firing_rate` (qc.units.task_firing_rates).
+    units needs each criterion's column as nwb.intake stores it ('quality', and
+    'quality_<column>' for the others) and `task_firing_rate` (qc.units.task_firing_rates).
     """
-    for column in ("quality", TASK_RATE):
+    q = qc.quality
+    for column in [*(q.stored(c.column) for c in q.criteria), TASK_RATE]:
         if column not in units:
             raise ValueError(f"units have no {column} column")
-    q = qc.quality
-    values = units["quality"].to_numpy()
-    passes = q.passes(values)
+    checks = []
+    for c in q.criteria:
+        values = units[q.stored(c.column)].to_numpy()
+        checks.append((c, values, c.passes(values)))
     reasons = []
-    for value, ok, rate in zip(values, passes, units[TASK_RATE].to_numpy(np.float64)):
+    rates = units[TASK_RATE].to_numpy(np.float64)
+    for i, rate in enumerate(rates):
         why = []
-        if pd.isna(value):
-            why.append(f"{q.column} missing")
-        elif not ok:
-            name = q.names.get(float(value))
-            shown = f"{value:g}" if isinstance(value, float | int | np.number) else str(value)
-            rule = (
-                f"< {q.pass_at_least:g}"
-                if q.pass_at_least is not None
-                else f"not in {list(q.pass_values)}"
-            )
-            why.append(f"{q.column} {shown}{f' ({name})' if name else ''} {rule}")
+        for c, values, passes in checks:
+            value = values[i]
+            if pd.isna(value):
+                why.append(f"{c.column} missing")
+            elif not passes[i]:
+                shown = _shown(value, q, c.column)
+                if c.op == "values":
+                    why.append(f"{c.column} {shown} not in {list(c.value)}")
+                elif c.op == "at_least":
+                    why.append(f"{c.column} {shown} < {c.value:g}")
+                else:
+                    why.append(f"{c.column} {shown} > {c.value:g}")
         if np.isnan(rate):
             why.append("task firing rate missing")
         elif rate < qc.min_firing_rate_hz:

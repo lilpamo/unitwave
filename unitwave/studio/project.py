@@ -150,7 +150,7 @@ def load_source(source: Source):
         return session, load_phy_qc_config() if labelled else load_spike_qc_config()
     if source.kind == "nwb":
         layout = load_layout(source.layout)
-        intake = read_nwb(source.file, layout)
+        intake = read_nwb(source.file, layout, task=source.task)
         REPORTS[intake.session.eid] = intake.report
         if layout.quality is None:
             return intake.session, load_spike_qc_config()

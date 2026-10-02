@@ -321,6 +321,10 @@ function renderSelectivity(t) {
     $('selWhat').textContent = 'Choose a condition to split by.';
   } else if (!pair) {
     $('selWhat').textContent = `${s.conditions[state.split]} has many levels: read its tuning curve. No two-condition test.`;
+  } else if (pair.kind === 'circular') {
+    $('selWhat').textContent = `Vector-sum selectivity over ${s.conditions[state.split].toLowerCase()} per unit ` +
+      `(period ${pair.period}°, rates ${pair.window} after the event): 0 is untuned, 1 fires at one angle only. ` +
+      `Tested one-sided against the angles permuted, Benjamini–Hochberg across the units tested, α = ${s.response.alpha}.`;
   } else {
     $('selWhat').textContent = `AUROC ${pair[1]} vs ${pair[0]} per unit: above 0.5, a higher rate for ${pair[1]}. ` +
       `Tested against a null, Benjamini–Hochberg across the units tested, α = ${s.response.alpha}.`;
@@ -330,6 +334,12 @@ function renderSelectivity(t) {
     return;
   }
   const on = t.probes.length === 1 ? `probe ${t.probes[0]}` : `probes ${t.probes.join(', ')}`;
+  if (t.kind === 'circular') {
+    $('selSummary').textContent = `${t.n_selective} of ${t.n_tests} units on ${on} selective for ${t.condition.toLowerCase()} ` +
+      `(${t.n_silent} silent in the window: no index, not selective) · ${t.n_trials} trials · ` +
+      `null: ${t.null}, ${t.n_null.toLocaleString()} draws, seed ${t.seed} · ${t.window} window`;
+    return;
+  }
   $('selSummary').textContent = `${t.n_selective} of ${t.n_tests} units on ${on} selective ` +
     `(${t.n_higher_b} higher for ${t.b}, ${t.n_higher_a} for ${t.a}) · ${t.n_a} vs ${t.n_b} trials · ` +
     `null: ${t.null}, ${t.n_null.toLocaleString()} draws, seed ${t.seed} · ${t.window} window`;
@@ -393,7 +403,8 @@ function renderTable() {
 
 function selTitle(u) {
   if (u.sel_auroc == null) return 'Not tested';
-  return `AUROC ${u.sel_auroc.toFixed(3)}, p = ${u.sel_p.toPrecision(2)}, q = ${u.sel_q.toPrecision(2)}`;
+  const stat = u.sel_preferred != null ? `index ${u.sel_auroc.toFixed(3)}, preferred ${u.sel_preferred.toFixed(0)}°` : `AUROC ${u.sel_auroc.toFixed(3)}`;
+  return `${stat}, p = ${u.sel_p.toPrecision(2)}, q = ${u.sel_q.toPrecision(2)}`;
 }
 function lockTitle(u) {
   if (u.locked == null) return 'Not tested';

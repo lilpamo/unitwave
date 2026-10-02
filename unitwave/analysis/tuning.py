@@ -147,6 +147,109 @@ def _pseudo_blocks(n_trials: int, n: int, seed: int) -> np.ndarray:
     return np.vstack([generate_pseudo_blocks(n_trials, seed=seed + 1 + i) for i in range(n)])
 
 
+def comparison_window(comparison, windows: ResponseConfig) -> tuple[float, float]:
+    """The comparison's window in seconds from the event: its own, or the response or
+    baseline window of configs/analysis.yaml."""
+    if not isinstance(comparison.window, str):
+        return comparison.window
+    return windows.baseline_window if comparison.window == "baseline" else windows.response_window
+
+
+def circular_index(rates: np.ndarray, angles: np.ndarray, period: float):
+    """((n_units,) index, (n_units,) preferred angle in degrees) of rates (n_units,
+    n_trials) at angles (n_trials,) degrees: |sum r e^(2 pi i angle / period)| / sum r,
+    and the angle the vector sum points to, in [0, period). NaN for a unit with no spikes."""
+    rates = np.atleast_2d(np.asarray(rates, np.float64))
+    angles = np.asarray(angles, np.float64)
+    assert rates.ndim == 2 and rates.shape[1] == angles.size
+    z = rates @ np.exp(2j * np.pi * angles / period)  # (n_units,)
+    total = rates.sum(axis=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        index = np.where(total > 0, np.abs(z) / total, np.nan)
+    # Rounded before wrapping, so an angle a hair below 0 reads as 0, not as the period.
+    angle = np.round(np.angle(z) * period / (2 * np.pi), 9)
+    preferred = np.where(total > 0, np.mod(angle, period) + 0.0, np.nan)
+    return index, preferred
+
+
+def circular_selectivity(
+    spikes,
+    unit_ids,
+    trials: pd.DataFrame,
+    event: str,
+    name: str,
+    windows: ResponseConfig,
+    cfg: SelectivityConfig,
+    trial_mask: np.ndarray | None = None,
+    task: TaskDefinition | None = None,
+) -> pd.DataFrame:
+    """(n_units, ...) index, preferred_deg, p, q, selective, n_trials, n_null, n_tests,
+    null, window, seed, period_deg.
+
+    A circular comparison (tasks.Comparison with a period): each unit's vector-sum index
+    over the trials' angles (circular_index), tested one-sided against the angles
+    permuted within the declared strata (cfg.n_permutations draws, seeded), with
+    p = (1 + #null >= observed) / (1 + n_null) and Benjamini-Hochberg across the units.
+    A unit with no spikes in the window has no index; it is kept with p = 1.
+    """
+    task = _task(task)
+    comparison = task.comparisons.get(name)
+    if comparison is None or comparison.kind != "circular":
+        raise ValueError(f"no circular selectivity test for {name!r}")
+    unit_ids = list(unit_ids)
+    angles = condition(trials, name, task).values
+    events = trial_event_times(trials, event, task)
+    keep = np.isfinite(events) & np.isfinite(angles)
+    if trial_mask is not None:
+        trial_mask = np.asarray(trial_mask, bool)
+        assert trial_mask.shape == keep.shape, "trial_mask must be (n_trials,)"
+        keep &= trial_mask
+    if comparison.permute_within:
+        strata = _strata(trials, name, task)
+        keep &= np.isfinite(strata)
+        strata = strata[keep]
+        null_described = null_name(name, task)
+    else:
+        strata = np.zeros(int(keep.sum()))
+        null_described = null_name(name, task)
+    n = int(keep.sum())
+    if n < cfg.min_trials:
+        raise ValueError(f"{name}: {n} trials; the test needs at least {cfg.min_trials}")
+    theta = angles[keep]
+    window = comparison_window(comparison, windows)
+    rates = np.vstack([window_rates(spikes[u], events[keep], window) for u in unit_ids])
+    observed, preferred = circular_index(rates, theta, comparison.period)
+    rng = np.random.default_rng(cfg.seed)
+    labels = stratified_permutations(theta, strata, cfg.n_permutations, rng)  # (n_null, n)
+    total = rates.sum(axis=1)
+    exceed = np.zeros(len(unit_ids), np.int64)
+    tol = 1e-12
+    for start in range(0, labels.shape[0], 500):  # bounded memory: (500, n) at a time
+        phases = np.exp(2j * np.pi * labels[start : start + 500] / comparison.period)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            null = np.abs(rates @ phases.T) / total[:, None]  # (n_units, block)
+        exceed += (null >= (observed - tol)[:, None]).sum(axis=1)
+    p = np.where(np.isfinite(observed), (1 + exceed) / (1 + labels.shape[0]), 1.0)
+    q = benjamini_hochberg(p)
+    return pd.DataFrame(
+        {
+            "index": observed,
+            "preferred_deg": preferred,
+            "p": p,
+            "q": q,
+            "selective": q < windows.alpha,
+            "n_trials": n,
+            "n_null": int(labels.shape[0]),
+            "n_tests": len(unit_ids),
+            "null": null_described,
+            "window": comparison.window_label,
+            "seed": cfg.seed,
+            "period_deg": comparison.period,
+        },
+        index=pd.Index(unit_ids, name="unit_id"),
+    )
+
+
 def _strata(trials: pd.DataFrame, name: str, task: TaskDefinition) -> np.ndarray:
     within = task.comparisons[name].permute_within
     columns = task.strata_columns(within)
@@ -184,6 +287,8 @@ def selectivity(
         raise ValueError(f"no selectivity test for {name!r}; available: {sorted(task.comparisons)}")
     unit_ids = list(unit_ids)
     comparison = task.comparisons[name]
+    if comparison.kind == "circular":
+        raise ValueError(f"{name} is a circular comparison: use circular_selectivity")
     level_a, level_b = comparison.levels
     values = condition(trials, name, task).values
     events = trial_event_times(trials, event, task)
@@ -203,8 +308,7 @@ def selectivity(
             f"{name}: {n_a} and {n_b} trials; each condition needs at least {cfg.min_trials}"
         )
 
-    baseline = comparison.window == "baseline"
-    window = windows.baseline_window if baseline else windows.response_window
+    window = comparison_window(comparison, windows)
     rates = np.vstack(
         [window_rates(spikes[u], events[keep], window) for u in unit_ids]
     )  # (n_units, n_keep)
@@ -247,7 +351,7 @@ def selectivity(
             "n_null": int(null.shape[1]),
             "n_tests": len(unit_ids),
             "null": described,
-            "window": comparison.window,
+            "window": comparison.window_label,
             "seed": cfg.seed,
         },
         index=pd.Index(unit_ids, name="unit_id"),
