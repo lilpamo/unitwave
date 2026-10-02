@@ -1,7 +1,9 @@
 """Movement controls: separating rate changes around an event from the movement after it.
 
 At stimulus onset most units change rate (step 3), but the mouse moves within a few
-hundred ms. These tools separate the two:
+hundred ms. These tools separate the two. The stimulus and movement events, and the
+strata reaction times are permuted within, come from the task definition's `movement`
+(IBL: stimulus onset, first movement, signed contrast with zero split by side):
 
 - **reaction_times:** first movement - stimulus onset, per trial (NaN kept).
 - **movement_free:** trials whose first movement comes after a given time, e.g. the
@@ -31,15 +33,16 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from unitwave.analysis.conditions import contrast_strata
+from unitwave.analysis.conditions import strata_values
+from unitwave.analysis.events import trial_event_times
 from unitwave.analysis.psth import PSTH, bin_edges
 from unitwave.analysis.responsiveness import benjamini_hochberg, load_response_config
+from unitwave.analysis.tasks import TaskDefinition, load_task
 from unitwave.analysis.tuning import stratified_permutations
 from unitwave.data.session import TimeSeries
 
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "movement.yaml"
 _KEYS = {"pre_window", "post_window", "n_permutations", "seed"}
-_NULL = "reaction times permuted within signed contrast"
 
 
 @dataclass(frozen=True)
@@ -69,21 +72,33 @@ def _need(trials: pd.DataFrame, *columns: str) -> None:
         raise ValueError(f"trials have no {', '.join(missing)} column, needed here")
 
 
-def reaction_times(trials: pd.DataFrame) -> np.ndarray:
-    """(n_trials,) first movement - stimulus onset, seconds; NaN where either is missing."""
-    _need(trials, "stimOn_times", "firstMovement_times")
-    rt = trials["firstMovement_times"].to_numpy(np.float64) - trials["stimOn_times"].to_numpy(
-        np.float64
-    )
-    return rt
+def _movement(task: TaskDefinition | None):
+    task = task if task is not None else load_task()
+    if task.movement is None:
+        raise ValueError(f"the {task.label} definition declares no stimulus and movement events")
+    return task, task.movement
 
 
-def movement_free(trials: pd.DataFrame, until_s: float) -> np.ndarray:
+def _event_columns(task: TaskDefinition, *events: str) -> list[str]:
+    return list(dict.fromkeys(c for e in events for c in task.events[e].columns))
+
+
+def reaction_times(trials: pd.DataFrame, task: TaskDefinition | None = None) -> np.ndarray:
+    """(n_trials,) movement - stimulus time (IBL: first movement - stimulus onset),
+    seconds; NaN where either is missing."""
+    task, m = _movement(task)
+    _need(trials, *_event_columns(task, m.stimulus, m.movement))
+    return trial_event_times(trials, m.movement, task) - trial_event_times(trials, m.stimulus, task)
+
+
+def movement_free(
+    trials: pd.DataFrame, until_s: float, task: TaskDefinition | None = None
+) -> np.ndarray:
     """(n_trials,) bool: the first movement comes strictly after stimulus onset + until_s.
 
     A trial without a movement time is not known to be movement-free, so it is False.
     """
-    rt = reaction_times(trials)
+    rt = reaction_times(trials, task)
     return np.isfinite(rt) & (rt > until_s)
 
 
@@ -146,15 +161,21 @@ def _window_counts(spikes: np.ndarray, times: np.ndarray, window) -> np.ndarray:
 
 
 def movement_locking(
-    spikes, unit_ids, trials: pd.DataFrame, cfg: MovementConfig, alpha: float | None = None
+    spikes,
+    unit_ids,
+    trials: pd.DataFrame,
+    cfg: MovementConfig,
+    alpha: float | None = None,
+    task: TaskDefinition | None = None,
 ) -> pd.DataFrame:
     """(n_units, ...) statistic_hz, p, q, locked, n_trials, n_null, n_tests, null, seed."""
-    _need(trials, "stimOn_times", "firstMovement_times", "contrastLeft", "contrastRight")
+    task, m = _movement(task)
+    _need(trials, *_event_columns(task, m.stimulus, m.movement), *task.strata_columns(m.strata))
     alpha = load_response_config().alpha if alpha is None else alpha
     unit_ids = list(unit_ids)
-    stim = trials["stimOn_times"].to_numpy(np.float64)
-    rt = reaction_times(trials)
-    strata = contrast_strata(trials)
+    stim = trial_event_times(trials, m.stimulus, task)
+    rt = reaction_times(trials, task)
+    strata = strata_values(trials, m.strata, task)
     keep = np.isfinite(stim) & np.isfinite(rt) & np.isfinite(strata)
     stim, rt, strata = stim[keep], rt[keep], strata[keep]
     n = stim.size
@@ -189,7 +210,7 @@ def movement_locking(
             "n_trials": n,
             "n_null": perms.shape[0],
             "n_tests": len(unit_ids),
-            "null": _NULL,
+            "null": f"reaction times permuted within {m.strata.replace('_', ' ')}",
             "seed": cfg.seed,
         },
         index=pd.Index(unit_ids, name="unit_id"),

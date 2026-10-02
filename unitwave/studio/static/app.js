@@ -214,17 +214,20 @@ function resetResponsive() { state.responsive = false; $('responsive').checked =
 // Movement-free trials and the locking test need each trial's first movement; the
 // notes say what each does, or why it is unavailable. The server does the work.
 function renderMovementNotes() {
-  const m = state.session.movement, r = state.session.response, stim = $('event').value === 'stim_on';
+  const m = state.session.movement, r = state.session.response, stim = $('event').value === m.stimulus;
   const ms = (w) => `${w[0] * 1000} to ${w[1] * 1000} ms`;
+  const move = (m.movement_label || 'movement').toLowerCase();
+  const none = m.stimulus == null ? `The task definition (${state.session.task.label}) declares no movement events.`
+    : `No ${move} times in this session.`;
   $('movementFree').disabled = !m.first_movement || !stim;
   $('freeBox').classList.toggle('off', $('movementFree').disabled);
-  $('freeNote').textContent = !m.first_movement ? 'No first-movement times in this session.'
-    : !stim ? 'Defined at stimulus onset only.'
-      : `Tests only trials whose first movement comes after ${r.response_window[1] * 1000} ms, the end of the response window. Plots keep every trial.`;
+  $('freeNote').textContent = !m.first_movement ? none
+    : !stim ? `Defined at ${m.stimulus_label.toLowerCase()} only.`
+      : `Tests only trials whose ${move} comes after ${r.response_window[1] * 1000} ms, the end of the response window. Plots keep every trial.`;
   $('runLock').disabled = !m.first_movement;
-  $('lockWhat').textContent = !m.first_movement ? 'No first-movement times in this session.'
-    : `Rate ${ms(m.windows[1])} minus ${ms(m.windows[0])} around each trial's own first movement, ` +
-      `against reaction times permuted within signed contrast. Benjamini–Hochberg across the units tested, α = ${r.alpha}.`;
+  $('lockWhat').textContent = !m.first_movement ? none
+    : `Rate ${ms(m.windows[1])} minus ${ms(m.windows[0])} around each trial's own ${move}, ` +
+      `against ${m.null}. Benjamini–Hochberg across the units tested, α = ${r.alpha}.`;
 }
 function renderLocking(t) {
   if (!state.session.movement.first_movement) { $('lockSummary').textContent = ''; return; }
@@ -249,30 +252,33 @@ async function runLocking() {
 
 // ---------- rail: trial filters ----------
 // Set on the homepage (or in the project); changeable here. The server applies them.
+// The filters are the task definition's (session.task.trial_filters), in its order:
+// a tick box for flag and exclude_values filters, one box per level for select ones.
 function renderTrialFilters() {
-  const s = state.session, t = state.trials, offered = s.trial_filters, lv = s.trial_levels;
+  const s = state.session, t = state.trials, offered = s.trial_filters;
   const off = (name) => (offered[name].available ? '' : `disabled title="${esc(offered[name].reason)}"`);
   const cls = (name) => (offered[name].available ? '' : 'off');
-  const boxes = (name, label, values, fmt) => !values ? `<div class="row ${cls(name)}"><span class="lbl">${label}</span><span class="note">${esc(offered[name].reason)}</span></div>` :
-    `<div class="row"><span class="lbl">${label}</span>` + values.map((v) =>
-      `<label><input type="checkbox" data-f="${name}" value="${v}" ${!(t[name] || []).length || t[name].includes(v) ? 'checked' : ''}> ${esc(fmt(v))}</label>`).join('') + '</div>';
-  $('trialFilters').innerHTML =
-    `<label class="check ${cls('bwm_include')}"><input type="checkbox" data-f="bwm_include" ${t.bwm_include ? 'checked' : ''} ${off('bwm_include')}> BWM trial inclusion only</label>` +
-    `<label class="check ${cls('exclude_nogo')}"><input type="checkbox" data-f="exclude_nogo" ${t.exclude_nogo ? 'checked' : ''} ${off('exclude_nogo')}> Exclude no-go</label>` +
-    boxes('contrasts', 'Contrasts', lv.contrasts, (v) => `${v * 100}%`) +
-    boxes('blocks', 'Blocks', lv.blocks, (v) => `${v}`) +
-    boxes('outcomes', 'Outcomes', lv.outcomes, (v) => (v < 0 ? 'error' : 'reward'));
+  const html = Object.entries(s.task.trial_filters).map(([name, f]) => {
+    if (f.kind !== 'select') {
+      return `<label class="check ${cls(name)}"><input type="checkbox" data-f="${name}" ${t[name] ? 'checked' : ''} ${off(name)}> ${esc(f.label)}</label>`;
+    }
+    if (!f.levels) return `<div class="row ${cls(name)}"><span class="lbl">${esc(f.label)}</span><span class="note">${esc(offered[name].reason)}</span></div>`;
+    return `<div class="row"><span class="lbl">${esc(f.label)}</span>` + f.levels.map((l) =>
+      `<label><input type="checkbox" data-f="${name}" value="${l.value}" ${!(t[name] || []).length || t[name].includes(l.value) ? 'checked' : ''}> ${esc(l.name)}</label>`).join('') + '</div>';
+  });
+  $('trialFilters').innerHTML = html.join('');
 }
 function readTrialFilters() {
   const t = {}, box = $('trialFilters');
-  for (const name of ['bwm_include', 'exclude_nogo']) {
-    const i = box.querySelector(`input[data-f="${name}"]`);
-    t[name] = Boolean(i && i.checked && !i.disabled);
-  }
-  for (const name of ['contrasts', 'blocks', 'outcomes']) {
-    const all = [...box.querySelectorAll(`input[data-f="${name}"]`)];
-    const on = all.filter((i) => i.checked).map((i) => +i.value);
-    t[name] = on.length === all.length ? [] : on;  // all ticked means no filter
+  for (const [name, f] of Object.entries(state.session.task.trial_filters)) {
+    if (f.kind !== 'select') {
+      const i = box.querySelector(`input[data-f="${name}"]`);
+      t[name] = Boolean(i && i.checked && !i.disabled);
+    } else {
+      const all = [...box.querySelectorAll(`input[data-f="${name}"]`)];
+      const on = all.filter((i) => i.checked).map((i) => +i.value);
+      t[name] = on.length === all.length ? [] : on;  // all ticked means no filter
+    }
   }
   return t;
 }
@@ -690,21 +696,19 @@ function trialParams() {
     trial_all: $('trialAll').checked ? 1 : 0, trial_traces: trialTraces().join(','),
   });
 }
-const pct = (c) => (c === 0 ? '0%' : `${c > 0 ? '+' : '−'}${Math.abs(c * 100)}%`);
 function renderTrialHead(d) {
   const h = d.header, none = '<span class="missing">not recorded</span>';
   const chip = (label, value) => `<span class="chip">${label} <b>${value ?? none}</b></span>`;
   const passes = h.passes_filter
     ? '<span class="chip">passes the trial filters</span>'
     : '<span class="chip fails">fails the trial filters</span>';
+  // The task's conditions, by its own names; an excluded trial says why.
+  const level = (c) => (c.level != null ? esc(c.level) : c.excluded ? `<span class="missing">excluded: ${esc(c.excluded)}</span>` : null);
   const lines = [
     chip('Trial', `${h.trial}`) + `<span class="chip">${esc(h.numbering)}</span>`,
-    chip('stimulus', h.side == null ? null : `${h.side}, ${pct(h.signed_contrast)}`),
-    chip('choice', h.choice && esc(h.choice)),
-    chip('outcome', h.outcome),
-    chip('block p(left)', h.block),
-    chip('reaction time', h.reaction_time_s == null ? null : `${Math.round(h.reaction_time_s * 1000)} ms`),
-    chip('bwm_include', h.bwm_include == null ? null : (h.bwm_include ? 'yes' : 'no')),
+    ...h.conditions.map((c) => chip(esc(c.label.toLowerCase()), level(c))),
+    ...(state.session.movement.stimulus == null ? [] : [chip(esc(`${state.session.movement.movement_label} − ${state.session.movement.stimulus_label}`.toLowerCase()), h.reaction_time_s == null ? null : `${Math.round(h.reaction_time_s * 1000)} ms`)]),
+    ...Object.entries(h.flags).map(([k, v]) => chip(esc(k), v == null ? null : (v ? 'yes' : 'no'))),
     passes,
   ];
   const byTrial = {};

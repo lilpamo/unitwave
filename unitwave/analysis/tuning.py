@@ -8,7 +8,8 @@ condition, with n per level.
 Selectivity: AUROC = P(rate at level b > rate at level a), ties counted half; 0.5 means
 no difference. It is tested two-sided against a null, with p = (1 + #null with
 |AUROC - 0.5| >= observed) / (1 + n_null). Benjamini-Hochberg runs across the units
-tested together, and n_tests is reported. Nulls (R4), by condition:
+tested together, and n_tests is reported. The comparisons and their nulls (R4) come
+from the task definition (unitwave/analysis/tasks.py); IBL's, by condition:
 
 - **choice:** labels permuted within signed-contrast strata, zero split by side.
   Choice follows the stimulus on correct trials, so a plain shuffle would call a
@@ -22,7 +23,9 @@ tested together, and n_tests is reported. Nulls (R4), by condition:
   the pre-event (baseline) window: the block prior predicts the stimulus side, so a
   post-stimulus window would count stimulus responses as block selectivity.
 
-Signed contrast has many levels: it gets a tuning curve, not a two-level AUROC.
+A task may also declare a plain permutation (`permute: all`) when nothing confounds a
+comparison. Signed contrast has many levels: it gets a tuning curve, not a two-level
+AUROC.
 Seeds and counts come from configs/selectivity.yaml (R7). Trials are treated as
 exchangeable within strata; slow drift in a unit's rate is only accounted for by the
 block null.
@@ -40,29 +43,36 @@ from scipy.stats import rankdata
 
 from unitwave.analysis.conditions import (
     condition,
-    contrast_strata,
     split_event_times,
+    strata_values,
 )
 from unitwave.analysis.events import trial_event_times
 from unitwave.analysis.psth import trial_counts
 from unitwave.analysis.responsiveness import ResponseConfig, benjamini_hochberg
+from unitwave.analysis.tasks import TaskDefinition, load_task
 from unitwave.evaluation.nulls import generate_pseudo_blocks
 
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "selectivity.yaml"
 _KEYS = {"n_permutations", "n_pseudo_sessions", "seed", "min_trials"}
-# condition -> (level a, level b): AUROC > 0.5 means a higher rate at level b.
-COMPARISONS = {
-    "side": (-1.0, 1.0),
-    "choice": (-1.0, 1.0),
-    "outcome": (-1.0, 1.0),
-    "block": (0.2, 0.8),
-}
-_STRATA = {
-    "choice": "choice permuted within signed contrast",
-    "side": "side permuted within choice",
-    "outcome": "outcome permuted within signed contrast",
-}
-_PSEUDO = "pseudo-sessions from IBL's block generator"
+# The IBL definition's comparisons, condition -> (level a, level b): AUROC > 0.5 means
+# a higher rate at level b.
+COMPARISONS = {name: c.levels for name, c in load_task().comparisons.items()}
+# Pseudo-session generators: name -> what the null is called.
+_PSEUDO = {"ibl_blocks": "pseudo-sessions from IBL's block generator"}
+
+
+def _task(task: TaskDefinition | None) -> TaskDefinition:
+    return task if task is not None else load_task()
+
+
+def null_name(name: str, task: TaskDefinition | None = None) -> str:
+    """How a comparison's null is described, from the task definition."""
+    c = _task(task).comparisons[name]
+    if c.pseudo_sessions:
+        return _PSEUDO[c.pseudo_sessions]
+    if c.permute_within:
+        return f"{name} permuted within {c.permute_within.replace('_', ' ')}"
+    return f"{name} permuted across trials (no strata declared)"
 
 
 @dataclass(frozen=True)
@@ -94,13 +104,15 @@ def window_rates(spikes: np.ndarray, events: np.ndarray, window) -> np.ndarray:
     return out
 
 
-def tuning_curve(spikes, trials: pd.DataFrame, event: str, name: str, window) -> pd.DataFrame:
+def tuning_curve(
+    spikes, trials: pd.DataFrame, event: str, name: str, window, task: TaskDefinition | None = None
+) -> pd.DataFrame:
     """(n_levels, 4): level, mean_hz, sem_hz, n per level of the condition, indexed by name.
 
     SEM is across trials (ddof=1), NaN with one trial.
     """
     rows = []
-    for part in split_event_times(trials, event, condition(trials, name)):
+    for part in split_event_times(trials, event, condition(trials, name, task), task):
         rates = window_rates(spikes, part.times, window)
         rates = rates[np.isfinite(rates)]
         n = rates.size
@@ -135,19 +147,13 @@ def _pseudo_blocks(n_trials: int, n: int, seed: int) -> np.ndarray:
     return np.vstack([generate_pseudo_blocks(n_trials, seed=seed + 1 + i) for i in range(n)])
 
 
-def _strata(trials: pd.DataFrame, name: str) -> np.ndarray:
-    if name == "side":
-        if "choice" not in trials:
-            raise ValueError("side selectivity needs the choice column to stratify by")
-        values = trials["choice"].to_numpy(np.float64).copy()
-        values[values == 0] = np.nan
-        return values
-    try:
-        return contrast_strata(trials)
-    except ValueError:
-        raise ValueError(
-            f"{name} selectivity needs contrastLeft and contrastRight to stratify by"
-        ) from None
+def _strata(trials: pd.DataFrame, name: str, task: TaskDefinition) -> np.ndarray:
+    within = task.comparisons[name].permute_within
+    columns = task.strata_columns(within)
+    if any(c not in trials for c in columns):
+        what = f"the {columns[0]} column" if len(columns) == 1 else " and ".join(columns)
+        raise ValueError(f"{name} selectivity needs {what} to stratify by")
+    return strata_values(trials, within, task)
 
 
 def selectivity(
@@ -160,6 +166,7 @@ def selectivity(
     cfg: SelectivityConfig,
     stratify: bool = True,
     trial_mask: np.ndarray | None = None,
+    task: TaskDefinition | None = None,
 ) -> pd.DataFrame:
     """(n_units, ...) auroc, p, q, selective, n_a, n_b, n_null, n_tests, null, window.
 
@@ -169,22 +176,25 @@ def selectivity(
     stratify=False replaces the null with a plain label permutation: only to show why
     the stratified and pseudo-session nulls are needed.
     """
-    if name == "contrast":
-        raise ValueError("signed contrast has many levels: use its tuning curve")
-    if name not in COMPARISONS:
-        raise ValueError(f"no selectivity test for {name!r}; available: {sorted(COMPARISONS)}")
+    task = _task(task)
+    if name not in task.comparisons:
+        spec = task.conditions.get(name)
+        if spec is not None and spec.type == "ordinal":
+            raise ValueError(f"{spec.label.lower()} has many levels: use its tuning curve")
+        raise ValueError(f"no selectivity test for {name!r}; available: {sorted(task.comparisons)}")
     unit_ids = list(unit_ids)
-    level_a, level_b = COMPARISONS[name]
-    values = condition(trials, name).values
-    events = trial_event_times(trials, event)
+    comparison = task.comparisons[name]
+    level_a, level_b = comparison.levels
+    values = condition(trials, name, task).values
+    events = trial_event_times(trials, event, task)
     keep = np.isfinite(events) & np.isin(values, (level_a, level_b))
     if trial_mask is not None:
         trial_mask = np.asarray(trial_mask, bool)
         assert trial_mask.shape == keep.shape, "trial_mask must be (n_trials,)"
         keep &= trial_mask
     strata = None
-    if stratify and name != "block":
-        strata = _strata(trials, name)
+    if stratify and comparison.permute_within:
+        strata = _strata(trials, name, task)
         keep &= np.isfinite(strata)
     y = (values[keep] == level_b).astype(np.int64)  # (n_keep,)
     n_b, n_a = int(y.sum()), int(y.size - y.sum())
@@ -193,26 +203,27 @@ def selectivity(
             f"{name}: {n_a} and {n_b} trials; each condition needs at least {cfg.min_trials}"
         )
 
-    window = windows.baseline_window if name == "block" else windows.response_window
+    baseline = comparison.window == "baseline"
+    window = windows.baseline_window if baseline else windows.response_window
     rates = np.vstack(
         [window_rates(spikes[u], events[keep], window) for u in unit_ids]
     )  # (n_units, n_keep)
     ranks = rankdata(rates, axis=1)
     rng = np.random.default_rng(cfg.seed)
-    if name == "block" and stratify:
+    if comparison.pseudo_sessions and stratify:  # only ibl_blocks is known (tasks.py)
         pseudo = _pseudo_blocks(len(trials), cfg.n_pseudo_sessions, cfg.seed)[:, keep]
-        if not np.isin(pseudo, (0.2, 0.8)).all():
+        if not np.isin(pseudo, (level_a, level_b)).all():
             raise ValueError(
-                "block: some tested trials fall in the pseudo-sessions' unbiased opening "
+                f"{name}: some tested trials fall in the pseudo-sessions' unbiased opening "
                 "block; this session's block structure differs from IBL's generator"
             )
-        labels, null_name = (pseudo == 0.8).astype(np.int64), _PSEUDO
+        labels, described = (pseudo == level_b).astype(np.int64), null_name(name, task)
     elif strata is not None:
         labels = stratified_permutations(y, strata[keep], cfg.n_permutations, rng)
-        null_name = _STRATA[name]
+        described = null_name(name, task)
     else:
         labels = stratified_permutations(y, np.zeros_like(y), cfg.n_permutations, rng)
-        null_name = f"{name} permuted without strata"
+        described = null_name(name, task) if stratify else f"{name} permuted without strata"
 
     # AUROC from rank sums: ranks don't depend on labels, so one product gives every draw.
     nb = labels.sum(axis=1)  # (n_null,)
@@ -235,8 +246,8 @@ def selectivity(
             "n_b": n_b,
             "n_null": int(null.shape[1]),
             "n_tests": len(unit_ids),
-            "null": null_name,
-            "window": "baseline" if name == "block" else "response",
+            "null": described,
+            "window": comparison.window,
             "seed": cfg.seed,
         },
         index=pd.Index(unit_ids, name="unit_id"),

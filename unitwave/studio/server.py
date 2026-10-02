@@ -46,13 +46,13 @@ from unitwave.analysis.catalog import (
     summary,
 )
 from unitwave.analysis.conditions import (
-    CONDITIONS,
     TrialFilter,
     TrialSelection,
     apply_trial_filter,
     available_conditions,
     available_trial_filters,
     condition,
+    filter_levels,
     split_event_times,
 )
 from unitwave.analysis.correlograms import (
@@ -63,7 +63,7 @@ from unitwave.analysis.correlograms import (
     load_correlogram_config,
 )
 from unitwave.analysis.decoding import decode, load_decoding_config
-from unitwave.analysis.events import EVENTS, available_events, event_times, trial_event_times
+from unitwave.analysis.events import available_events, event_times, trial_event_times
 from unitwave.analysis.movement import (
     load_movement_config,
     movement_free,
@@ -81,11 +81,10 @@ from unitwave.analysis.psth import (
     selection_average,
 )
 from unitwave.analysis.responsiveness import load_response_config, responsiveness
+from unitwave.analysis.tasks import DEFAULT_TASK, TaskDefinition, list_tasks, load_task
 from unitwave.analysis.trajectories import load_trajectory_config, trajectories
 from unitwave.analysis.trial_view import (
-    EVENT_COLUMNS,
     NUMBERING,
-    TRACES,
     TRIAL_START,
     alignment_label,
     load_trial_view_config,
@@ -94,7 +93,6 @@ from unitwave.analysis.trial_view import (
     trial_view,
 )
 from unitwave.analysis.tuning import (
-    COMPARISONS,
     load_selectivity_config,
     selectivity,
     tuning_curve,
@@ -123,6 +121,7 @@ from unitwave.studio.entry import (
     resolve_phy_folder,
 )
 from unitwave.studio.export import export_view
+from unitwave.studio.freshness import Freshness
 from unitwave.studio.project import (
     DEFAULT_VIEW,
     SUFFIX,
@@ -179,8 +178,15 @@ class Studio:
         view: dict | None = None,
         warnings: list[str] = (),
         ibl_alf: Path | None = None,
+        task: TaskDefinition | None = None,
     ):
         self.session = session
+        # The task definition the trials table is read with (analysis.tasks): the
+        # source's, else IBL's. A table without its required columns is refused here.
+        if task is None:
+            task = load_task(source.task if source is not None else DEFAULT_TASK)
+        task.require(session.trials)
+        self.task = task
         # The session's alf folder in the local ONE cache (IBL only): waveforms and
         # IBL's per-criterion metrics. None when not downloaded.
         self.ibl_alf = ibl_alf
@@ -228,7 +234,32 @@ class Studio:
 
     def _filter(self, q: dict) -> TrialFilter:
         """The request's trial filter; no `tf` means every trial."""
-        return TrialFilter.from_dict(json.loads(q["tf"])) if q.get("tf") else TrialFilter()
+        if q.get("tf"):
+            return TrialFilter.from_dict(json.loads(q["tf"]), self.task)
+        return TrialFilter(self.task)
+
+    def _event_label(self, event: str) -> str:
+        if event not in self.task.events:
+            raise ValueError(f"unknown event {event!r}; available: {sorted(self.task.events)}")
+        return self.task.events[event].label
+
+    def _condition_label(self, name: str) -> str:
+        if name not in self.task.conditions:
+            raise ValueError(
+                f"unknown condition {name!r}; available: {sorted(self.task.conditions)}"
+            )
+        return self.task.conditions[name].label
+
+    def _colours(self, split: str, levels, theme: str) -> list[str]:
+        """IBL's conditions have their own colours (sides, contrast ramp); another task's
+        levels take the categorical slots in order."""
+        return condition_colours(split if self.task.name == DEFAULT_TASK else "", levels, theme)
+
+    def _level_names(self, name: str, levels) -> list[str]:
+        """Names of the given levels of a condition, as this session's table has them."""
+        c = condition(self.session.trials, name, self.task)
+        named = dict(zip(c.levels, c.names))
+        return [named.get(float(v), f"{float(v):g}") for v in levels]
 
     def _trials(self, q: dict) -> tuple[pd.DataFrame, TrialSelection]:
         sel = apply_trial_filter(self.session.trials, self._filter(q))
@@ -276,7 +307,7 @@ class Studio:
     def _params(self, q: dict):
         window = (float(q["t0"]), float(q["t1"]))
         baseline = (float(q["b0"]), float(q["b1"])) if q.get("baseline") == "1" else None
-        events = event_times(self._trials(q)[0], q["event"])
+        events = event_times(self._trials(q)[0], q["event"], self.task)
         return window, float(q["bin"]), baseline, events
 
     def session_json(self, q: dict) -> dict:
@@ -286,26 +317,28 @@ class Studio:
             "n_trials": self.session.n_trials,
             "n_units_total": len(self.units),
             "n_units_passing": int(self.units["qc_passed"].sum()),
-            "events": available_events(self.session.trials),
+            "task": self._task_json(),
+            "events": available_events(self.session.trials, self.task),
             "levels": list(LEVELS),
             "default_level": DEFAULT_LEVEL,
             "missing": {k: v for k, v in missing.items() if k.startswith("units.")},
             "response": dict(self.response_cfg.__dict__),
             "probes": self.probes,
             "probe_colours": {theme: probe_colours(self.probes, theme) for theme in THEMES},
-            "conditions": available_conditions(self.session.trials),
+            "conditions": available_conditions(self.session.trials, self.task),
             "comparisons": {
-                name: [condition(self.session.trials, name).names[i] for i in (0, -1)]
-                for name in available_conditions(self.session.trials)
-                if name in COMPARISONS
+                name: self._level_names(name, self.task.comparisons[name].levels)
+                for name in available_conditions(self.session.trials, self.task)
+                if name in self.task.comparisons
             },
             "selectivity": dict(self.selectivity_cfg.__dict__),
-            "trial_filters": available_trial_filters(self.session.trials),
+            "trial_filters": available_trial_filters(self.session.trials, self.task),
             "trial_levels": self._trial_levels(),
             "movement": {
                 "wheel": "wheel" in self.session.behaviour,
                 "wheel_missing": self.session.available.missing.get("behaviour.wheel", ""),
-                "first_movement": "firstMovement_times" in self.session.trials,
+                "first_movement": self._has_movement(),
+                **self._movement_names(),
                 "windows": [
                     list(self.movement_cfg.pre_window),
                     list(self.movement_cfg.post_window),
@@ -325,8 +358,8 @@ class Studio:
                 "alignments": {
                     TRIAL_START: "Trial start",
                     **{
-                        c: alignment_label(c).capitalize()
-                        for c in EVENT_COLUMNS
+                        c: alignment_label(c, self.task).capitalize()
+                        for c in self.task.trial_view_events
                         if c in self.session.trials
                     },
                 },
@@ -339,7 +372,7 @@ class Studio:
                         "available": name in self.session.behaviour,
                         "reason": missing.get(f"behaviour.{name}", ""),
                     }
-                    for name in TRACES
+                    for name in self.task.traces
                 },
             },
             "project": {
@@ -355,16 +388,63 @@ class Studio:
         }
 
     def _trial_levels(self) -> dict:
-        """The values the trial filters can choose from, in this session."""
-        trials, out = self.session.trials, {}
-        if "contrast" in available_conditions(trials):
-            levels = np.abs(condition(trials, "contrast").levels)
-            out["contrasts"] = sorted({float(v) for v in levels})
-        if "probabilityLeft" in trials:
-            out["blocks"] = list(condition(trials, "block").levels)
-        if "feedbackType" in trials:
-            out["outcomes"] = list(condition(trials, "outcome").levels)
-        return out
+        """The values the select trial filters can choose from, in this session."""
+        return {
+            name: [level["value"] for level in levels]
+            for name, levels in self._filter_levels().items()
+        }
+
+    def _filter_levels(self) -> dict:
+        """Each available select filter's choices, named: {name: [{value, name}]}."""
+        offered = available_trial_filters(self.session.trials, self.task)
+        return {
+            name: filter_levels(self.session.trials, name, self.task)
+            for name, f in self.task.trial_filters.items()
+            if f.kind == "select" and offered[name]["available"]
+        }
+
+    def _has_movement(self) -> bool:
+        m = self.task.movement
+        return m is not None and all(
+            c in self.session.trials
+            for e in (m.stimulus, m.movement)
+            for c in self.task.events[e].columns
+        )
+
+    def _movement_names(self) -> dict:
+        """The task's stimulus and movement events, and the locking null, in its words."""
+        m = self.task.movement
+        if m is None:
+            return {"stimulus": None, "stimulus_label": None, "movement_label": None, "null": None}
+        return {
+            "stimulus": m.stimulus,
+            "stimulus_label": self.task.events[m.stimulus].label,
+            "movement_label": self.task.events[m.movement].label,
+            "null": f"reaction times permuted within {m.strata.replace('_', ' ')}",
+        }
+
+    def _task_json(self) -> dict:
+        """The task definition as the page needs it: its names, and the choices of each
+        trial filter, named."""
+        t, m = self.task, self.task.movement
+        levels = self._filter_levels()
+        return {
+            "name": t.name,
+            "label": t.label,
+            "conditions": {k: {"label": c.label, "type": c.type} for k, c in t.conditions.items()},
+            "trial_filters": {
+                k: {"label": f.label, "kind": f.kind, "levels": levels.get(k)}
+                for k, f in t.trial_filters.items()
+            },
+            "movement": (
+                None
+                if m is None
+                else {
+                    "stimulus": t.events[m.stimulus].label,
+                    "movement": t.events[m.movement].label,
+                }
+            ),
+        }
 
     def save(self, view: dict) -> dict:
         """Write the project file: source, hashes, configs and this view, never results."""
@@ -387,10 +467,19 @@ class Studio:
                 raise ValueError("no units to test")
             trials = self._trials(q)[0]
             if q.get("movement_free") == "1":
-                if q["event"] != "stim_on":
-                    raise ValueError("movement-free trials are defined for stimulus onset only")
-                trials = trials[movement_free(trials, self.response_cfg.response_window[1])]
-            events = event_times(trials, q["event"])
+                m = self.task.movement
+                if m is None:
+                    raise ValueError(
+                        f"the {self.task.label} definition declares no movement events"
+                    )
+                if q["event"] != m.stimulus:
+                    raise ValueError(
+                        "movement-free trials are defined for "
+                        f"{self.task.events[m.stimulus].label.lower()} only"
+                    )
+                free = movement_free(trials, self.response_cfg.response_window[1], self.task)
+                trials = trials[free]
+            events = event_times(trials, q["event"], self.task)
             self._tests[key] = responsiveness(self.session.spikes, ids, events, self.response_cfg)
         return self._summary(self._tests[key], key[-1])
 
@@ -672,7 +761,12 @@ class Studio:
                 raise ValueError("no units to test")
             trials = self._trials(q)[0]
             self._locking[key] = movement_locking(
-                self.session.spikes, ids, trials, self.movement_cfg, self.response_cfg.alpha
+                self.session.spikes,
+                ids,
+                trials,
+                self.movement_cfg,
+                self.response_cfg.alpha,
+                self.task,
             )
         return self._locking_summary(self._locking[key])
 
@@ -702,7 +796,7 @@ class Studio:
         window, bin_width, _, events = self._params(q)
         p = wheel_speed_psth(self.session.behaviour["wheel"], events, window, bin_width)
         caption = (
-            f"Wheel speed · {EVENTS[q['event']][0]} · n = {p.n_trials} trials"
+            f"Wheel speed · {self._event_label(q['event'])} · n = {p.n_trials} trials"
             + (f", {p.n_excluded} without this event excluded" if p.n_excluded else "")
             + self._trial_note(self._trials(q)[1])
         )
@@ -740,14 +834,15 @@ class Studio:
                 self.response_cfg,
                 self.selectivity_cfg,
                 trial_mask=self._trials(q)[1].mask,
+                task=self.task,
             )
         return self._selectivity_summary(self._selectivity[key], q)
 
     def _selectivity_summary(self, t: pd.DataFrame, q: dict) -> dict:
-        names = condition(self.session.trials, q["split"]).names
+        names = self._level_names(q["split"], self.task.comparisons[q["split"]].levels)
         higher_b = t["selective"] & (t["auroc"] > 0.5)
         return {
-            "condition": CONDITIONS[q["split"]][0],
+            "condition": self._condition_label(q["split"]),
             "a": names[0],
             "b": names[-1],
             "n_tests": int(t["n_tests"].iloc[0]),
@@ -816,11 +911,12 @@ class Studio:
         note = self._trial_note(sel)
         split = q.get("split", "")
         if split:
-            cond = condition(trials, split)
-            colours = condition_colours(split, cond.levels, q.get("theme", "light"))
+            cond = condition(trials, split, self.task)
+            colours = self._colours(split, cond.levels, q.get("theme", "light"))
             groups = []
             raster_trials = []
-            for part, colour in zip(split_event_times(trials, q["event"], cond), colours):
+            parts = split_event_times(trials, q["event"], cond, self.task)
+            for part, colour in zip(parts, colours):
                 if not np.isfinite(part.times).any():
                     continue  # e.g. error trials when aligned to reward feedback
                 rows = trials.index[cond.values == part.level][np.isfinite(part.times)]
@@ -831,17 +927,17 @@ class Studio:
             n = sum(g.psth.n_trials for g in groups)
             excluded = f", {cond.n_excluded} {cond.excluded} excluded" if cond.n_excluded else ""
             caption = (
-                f"{q['unit']}{where} · {EVENTS[q['event']][0]} · split by "
-                f"{CONDITIONS[split][0].lower()} · n = {n} trials{excluded}{note}"
+                f"{q['unit']}{where} · {self._event_label(q['event'])} · split by "
+                f"{self._condition_label(split).lower()} · n = {n} trials{excluded}{note}"
             )
         else:
             p = psth(spikes, events, window, bin_width, baseline)
             trial, rel = raster(spikes, events, window)
             groups = [TraceGroup("all trials", None, p, trial, rel)]
-            rows = trials.index[np.isfinite(trial_event_times(trials, q["event"]))]
+            rows = trials.index[np.isfinite(trial_event_times(trials, q["event"], self.task))]
             raster_trials = self._trial_numbers(rows)
             caption = (
-                f"{q['unit']}{where} · {EVENTS[q['event']][0]} · n = {p.n_trials} trials"
+                f"{q['unit']}{where} · {self._event_label(q['event'])} · n = {p.n_trials} trials"
                 + (f", {p.n_excluded} without this event excluded" if p.n_excluded else "")
                 + note
             )
@@ -865,11 +961,13 @@ class Studio:
             raise ValueError("choose a condition to split by for a tuning curve")
         window = self.response_cfg.response_window
         trials, sel = self._trials(q)
-        curve = tuning_curve(self.session.spikes[q["unit"]], trials, q["event"], split, window)
-        cond = condition(trials, split)
+        spikes = self.session.spikes[q["unit"]]
+        curve = tuning_curve(spikes, trials, q["event"], split, window, self.task)
+        cond = condition(trials, split, self.task)
         caption = (
             f"{q['unit']} · response rate {window[0] * 1000:g} to {window[1] * 1000:g} ms after "
-            f"{EVENTS[q['event']][0].lower()}, by {CONDITIONS[split][0].lower()} · mean ± SEM"
+            f"{self._event_label(q['event']).lower()}, by "
+            f"{self._condition_label(split).lower()} · mean ± SEM"
             f"{self._trial_note(sel)}"
         )
         return {"curve": curve, "levels": cond.levels, "caption": caption}
@@ -877,14 +975,14 @@ class Studio:
     def tuning_png(self, q: dict) -> tuple[bytes, dict]:
         d = self.tuning_data(q)
         curve, split = d["curve"], q["split"]
-        colours = condition_colours(split, d["levels"], q.get("theme", "light"))
+        colours = self._colours(split, d["levels"], q.get("theme", "light"))
         png = tuning_figure(
             list(curve.index),
             curve["mean_hz"].to_numpy(),
             curve["sem_hz"].to_numpy(),
             curve["n"].tolist(),
             colours,
-            split in ("contrast", "block"),
+            self.task.conditions[split].type == "ordinal",
             q.get("theme", "light"),
         )
         return png, {"X-Caption": quote(d["caption"])}
@@ -925,7 +1023,9 @@ class Studio:
             raise ValueError("no units match this filter")
         keep = self._trials(q)[1].mask
         args = self._trial_args(q)
-        view = trial_view(self.session, self.units.loc[ids], cfg=self.trial_cfg, keep=keep, **args)
+        view = trial_view(
+            self.session, self.units.loc[ids], cfg=self.trial_cfg, keep=keep, task=self.task, **args
+        )
         regions = [None if pd.isna(r) else r for r in self._regions(q)[view.rows]]
         info = region_info({r for r in regions if r}) if self.has_regions else {}
         included = sorted(set(view.probes))
@@ -935,7 +1035,7 @@ class Studio:
             f"Single trial, descriptive (no test) · trial {view.window.trial} (0-based) · "
             f"{len(view.rows)} {which}units ({q.get('node') or 'all regions'}) · "
             f"{'probe' if len(included) == 1 else 'probes'} {', '.join(included)} · "
-            f"zero at {alignment_label(view.window.align)}"
+            f"zero at {view.align_label}"
             + (f" · trials {shown[0]} to {shown[-1]}" if len(shown) > 1 else "")
             + f" · pads {args['pre']:g} s before, {args['post']:g} s after"
         )
@@ -1004,7 +1104,8 @@ class Studio:
         caption = (
             f"{len(ids)} {which}units ({q.get('node') or 'all regions'}) · "
             f"{'probe' if len(included) == 1 else 'probes'} {', '.join(included)} · "
-            f"{EVENTS[q['event']][0]} · sorted by peak time on odd trials (n = {sort_on.size}), "
+            f"{self._event_label(q['event'])} · sorted by peak time on odd trials "
+            f"(n = {sort_on.size}), "
             f"showing even trials (n = {show.size}){self._trial_note(self._trials(q)[1])}"
         )
         return {
@@ -1176,20 +1277,22 @@ class Studio:
         window, bin_width = (float(q["t0"]), float(q["t1"])), float(q["bin"])
         theme, split = q.get("theme", "light"), q.get("split", "")
         if split:
-            cond = condition(trials, split)
-            parts = [(p.name, p.times) for p in split_event_times(trials, q["event"], cond)]
-            colour_of = dict(zip(cond.names, condition_colours(split, cond.levels, theme)))
-            how = f"split by {CONDITIONS[split][0].lower()}"
+            cond = condition(trials, split, self.task)
+            split_parts = split_event_times(trials, q["event"], cond, self.task)
+            parts = [(p.name, p.times) for p in split_parts]
+            colour_of = dict(zip(cond.names, self._colours(split, cond.levels, theme)))
+            how = f"split by {self._condition_label(split).lower()}"
             dropped = f" · {cond.n_excluded} {cond.excluded} excluded" if cond.n_excluded else ""
         else:
-            parts = [("all trials", trial_event_times(trials, q["event"]))]
+            parts = [("all trials", trial_event_times(trials, q["event"], self.task))]
             colour_of = {"all trials": THEMES[theme]["series"]}
             how, dropped = "all trials", ""
         r = trajectories(self.session.spikes, ids, parts, window, bin_width, self.traj_cfg)
         shown = ", ".join(f"{a} {v:.0%}" for a, v in zip(r.axis_names, r.explained_held_out))
         not_shown = "".join(f" · {name} not shown: {why}" for name, why in r.excluded.items())
         caption = (
-            f"{len(ids)} units ({q.get('node') or 'all regions'}) · {EVENTS[q['event']][0]} · "
+            f"{len(ids)} units ({q.get('node') or 'all regions'}) · "
+            f"{self._event_label(q['event'])} · "
             f"{how} · principal components of condition-averaged rates, fit on "
             f"{sum(r.n_fit)} trials (1st, 3rd, ...) and shown on the other {sum(r.n_show)} · "
             "descriptive (no test) · "
@@ -1350,6 +1453,8 @@ class App:
                 "modalities": sorted({x for mods in s["modalities"] for x in mods}),
                 "min_region_units": self.catalog_cfg.min_region_units,
                 "trial_levels": _BWM_TRIAL_LEVELS,
+                "tasks": list_tasks(),
+                "default_task": DEFAULT_TASK,
                 "default_trial_filter": TrialFilter.from_dict(
                     self.catalog_cfg.default_trial_filter
                 ).to_dict(),
@@ -1426,7 +1531,7 @@ class App:
         if kind == "project":
             path = project_path(self.data.data_root / "projects", str(body.get("name", "")))
             project, session, qc, warnings = open_project(path)
-            source = Source(**{k: v for k, v in project["source"].items() if k != "release"})
+            source = Source.from_record(project["source"])
             atlas = self.data.data_root / "atlas"
             self.studio = Studio(
                 session, qc, atlas, source, path, project["view"], warnings, self.ibl_alf(source)
@@ -1434,7 +1539,8 @@ class App:
             return {"eid": session.eid, "url": "/session", "warnings": warnings}
         if kind == "phy":
             folder, events = resolve_phy_folder(self.phy_root, str(body.get("path", "")))
-            source = Source(kind="phy", folder=str(folder), events=str(events))
+            task = str(body.get("task") or DEFAULT_TASK)
+            source = Source(kind="phy", folder=str(folder), events=str(events), task=task)
             name = folder.name
         elif kind == "ibl" and body.get("eid"):
             source = Source(kind="ibl", eid=str(body["eid"]), backend="bwm")
@@ -1443,16 +1549,18 @@ class App:
             raise ValueError(
                 "open needs {kind: 'ibl', eid}, {kind: 'phy', path} or {kind: 'project', name}"
             )
+        task = load_task(source.task)  # refuses an unknown or malformed definition
         session, qc = self._loader(source)
+        task.require(session.trials)  # refuses a table without the required columns
         if "trials" in body:
-            chosen = TrialFilter.from_dict(body["trials"])
+            chosen = TrialFilter.from_dict(body["trials"], task)
             apply_trial_filter(session.trials, chosen)  # refuses a filter it can't apply
         else:
-            chosen = default_trials(session.trials, self.catalog_cfg)
+            chosen = default_trials(session.trials, self.catalog_cfg, task)
         view = {**DEFAULT_VIEW, "trials": chosen.to_dict()}
         path = _new_project_path(self.data.data_root / "projects", name)
         atlas = self.data.data_root / "atlas"
-        self.studio = Studio(session, qc, atlas, source, path, view, [], self.ibl_alf(source))
+        self.studio = Studio(session, qc, atlas, source, path, view, [], self.ibl_alf(source), task)
         return {"eid": session.eid, "url": "/session"}
 
     def ibl_alf(self, source: Source) -> Path | None:
@@ -1462,11 +1570,16 @@ class App:
         return ibl_session_folder(self.data.one_cache_root, self.manifest.sessions, source.eid)
 
 
-def default_trials(trials: pd.DataFrame, cfg) -> TrialFilter:
-    """configs/catalog.yaml's default trial filter, minus what this session can't support."""
-    offered = available_trial_filters(trials)
+def default_trials(trials: pd.DataFrame, cfg, task: TaskDefinition | None = None) -> TrialFilter:
+    """configs/catalog.yaml's default trial filter (IBL's), minus what this session can't
+    support. Another task starts with every trial."""
+    task = task if task is not None else load_task()
+    if task.name != DEFAULT_TASK:
+        return TrialFilter(task)
+    offered = available_trial_filters(trials, task)
     default = cfg.default_trial_filter
-    return TrialFilter.from_dict({k: v for k, v in default.items() if offered[k]["available"]})
+    chosen = {k: v for k, v in default.items() if offered[k]["available"]}
+    return TrialFilter.from_dict(chosen, task)
 
 
 # Session-list columns the homepage can sort by.
@@ -1523,9 +1636,12 @@ _APP_IMAGES = {"/api/summary.png": "summary_png"}
 _JSON_METHODS = {name for ctype, name in _SESSION_ROUTES.values() if ctype == "application/json"}
 
 
-def make_handler(app: "App | Studio"):
+def make_handler(app: "App | Studio", freshness: Freshness | None = None):
+    """The request handler. freshness: whether the code changed since the server
+    started (studio.freshness); made now when not given."""
     if isinstance(app, Studio):  # a single session, as before the homepage
         app = App(load_data_config(), studio=app)
+    fresh = freshness if freshness is not None else Freshness()
 
     def page(name: str) -> bytes:
         return (HERE / name).read_bytes()
@@ -1544,6 +1660,8 @@ def make_handler(app: "App | Studio"):
             url = urlparse(self.path)
             q = {k: v[0] for k, v in parse_qs(url.query).items()}
             try:
+                if url.path in ("/", "/session") and fresh.stale():
+                    return self._send(503, "text/html; charset=utf-8", fresh.restart_page())
                 if url.path == "/":
                     return self._send(200, "text/html; charset=utf-8", page("home.html"))
                 if url.path == "/session":
@@ -1634,6 +1752,12 @@ def build_app(argv: list[str]) -> tuple[App, str]:
     ap.add_argument("--phy", help="a Kilosort/Phy output folder (one probe); needs --events")
     ap.add_argument("--events", help="CSV of trial events, seconds on the probe's clock")
     ap.add_argument(
+        "--task",
+        default=DEFAULT_TASK,
+        help="with --phy: the task definition the events are read with, a built-in name "
+        "(configs/tasks/) or a YAML file",
+    )
+    ap.add_argument(
         "--project",
         type=Path,
         help=f"a *{SUFFIX} file: alone, opens it; with a data source, saves a new one there",
@@ -1652,7 +1776,7 @@ def build_app(argv: list[str]) -> tuple[App, str]:
         if not args.project.exists():
             ap.error(f"{args.project} does not exist; give a data source to start a new project")
         project, session, qc, warnings = open_project(args.project)
-        source = Source(**{k: v for k, v in project["source"].items() if k != "release"})
+        source = Source.from_record(project["source"])
         view, path = project["view"], args.project
     else:
         if args.phy:
@@ -1660,6 +1784,7 @@ def build_app(argv: list[str]) -> tuple[App, str]:
                 kind="phy",
                 folder=str(Path(args.phy).resolve()),
                 events=str(Path(args.events).resolve()),
+                task=args.task,
             )
         else:
             source = Source(kind="ibl", eid=args.eid, backend=args.backend)
@@ -1669,7 +1794,9 @@ def build_app(argv: list[str]) -> tuple[App, str]:
         path = args.project or _new_project_path(data.data_root / "projects", name)
         session, qc = load_source(source)
         # The same default as opening from the homepage; a project keeps its own.
-        trials = default_trials(session.trials, load_catalog_config())
+        task = load_task(source.task)
+        task.require(session.trials)
+        trials = default_trials(session.trials, load_catalog_config(), task)
         view = {**DEFAULT_VIEW, "trials": trials.to_dict()}
     app = App(data)
     atlas = data.data_root / "atlas"

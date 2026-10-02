@@ -12,10 +12,11 @@ One folder is one probe. Read from the folder:
   all present: the y position of the peak channel (largest peak-to-peak) of the
   template most of the cluster's spikes use.
 
-The events CSV has one row per trial and canonical trial column names
-(session.TRIAL_FIELDS). `intervals_0` and `intervals_1` (trial start and end) are
-required; the task period and unit QC are defined by them. Times must already be in
-seconds on the probe's clock: the loader refuses events outside the span of the
+The events CSV has one row per trial, numeric columns, and the column names of the
+task definition it is read with (analysis.tasks; IBL's canonical names,
+session.TRIAL_FIELDS, by default). `intervals_0` and `intervals_1` (trial start and
+end) are required; the task period and unit QC are defined by them. Times must already
+be in seconds on the probe's clock: the loader refuses events outside the span of the
 recorded spikes, but cannot detect a smaller offset between clocks.
 
 A Phy folder has no brain region, IBL QC label, 3-D position or recording length, so
@@ -28,6 +29,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from unitwave.analysis.tasks import TaskDefinition
 from unitwave.data.session import (
     BEHAVIOUR_FIELDS,
     TRIAL_FIELDS,
@@ -112,12 +114,17 @@ def _depths(folder: Path, order: np.ndarray, starts: np.ndarray, ends: np.ndarra
     return positions[peak_channel[dominant], 1]
 
 
-def _events(path: str | Path, span: tuple[float, float]) -> pd.DataFrame:
+def _events(
+    path: str | Path, span: tuple[float, float], task: TaskDefinition | None = None
+) -> pd.DataFrame:
     trials = pd.read_csv(path)
-    unknown = sorted(set(trials) - set(TRIAL_FIELDS))
+    known = list(dict.fromkeys([*TRIAL_FIELDS, *(task.columns if task else ())]))
+    unknown = sorted(set(trials) - set(known))
     if unknown:
+        which = f"the task definition {task.label!r}" if task else "IBL's names"
         raise ValueError(
-            f"{path}: unknown event columns {unknown}. Rename them to one of {list(TRIAL_FIELDS)}"
+            f"{path}: unknown event columns {unknown}, not read by {which}. Rename them to "
+            f"one of {known}, or read the file with another task definition"
         )
     missing = [c for c in _REQUIRED_EVENTS if c not in trials]
     if missing:
@@ -130,7 +137,8 @@ def _events(path: str | Path, span: tuple[float, float]) -> pd.DataFrame:
     trials = trials.drop(columns=empty)
     if not np.isfinite(trials[list(_REQUIRED_EVENTS)].to_numpy()).all():
         raise ValueError(f"{path}: every trial needs a finite intervals_0 and intervals_1")
-    for column in [c for c in TRIAL_TIME_FIELDS if c in trials]:
+    times = [*TRIAL_TIME_FIELDS, *(task.time_columns if task else ())]
+    for column in [c for c in dict.fromkeys(times) if c in trials]:
         t = trials[column].to_numpy()
         outside = np.isfinite(t) & ((t < span[0]) | (t > span[1]))
         if outside.any():
@@ -143,11 +151,15 @@ def _events(path: str | Path, span: tuple[float, float]) -> pd.DataFrame:
 
 
 def load_session_phy(
-    folder: str | Path, events_csv: str | Path, probe_name: str | None = None
+    folder: str | Path,
+    events_csv: str | Path,
+    probe_name: str | None = None,
+    task: TaskDefinition | None = None,
 ) -> Session:
     """Session with one unit per cluster in spike_clusters.npy, ids '<probe_name>_<cluster_id>'.
 
-    probe_name defaults to the folder's name.
+    probe_name defaults to the folder's name. task: the definition the events CSV is read
+    with; its columns are accepted besides IBL's (None: IBL's names only).
     """
     folder = Path(folder)
     probe_name = probe_name or folder.name
@@ -185,7 +197,7 @@ def load_session_phy(
         units["depths"] = depths
 
     span = (float(times.min()), float(times.max()))
-    trials = _events(events_csv, span)
+    trials = _events(events_csv, span, task)
     missing |= {
         f"trials.{f}": "not in the events file, or empty there"
         for f in TRIAL_FIELDS

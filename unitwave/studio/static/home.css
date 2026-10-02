@@ -44,6 +44,7 @@ tbody tr td.open-cell { text-align: right; }
 .inline { display: flex; gap: 6px; margin: 4px 0; }
 .inline input, .inline select { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--axis); border-radius: 6px; padding: 4px 6px; }
 .inline .btn, .list .btn { margin: 0; }
+.inline label { align-self: center; color: var(--ink2); }
 .list { display: grid; gap: 4px; max-height: 120px; overflow: auto; font-size: 12px; }
 .list .row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
 .list .row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -24,7 +24,6 @@ from matplotlib.patches import Patch
 from matplotlib.ticker import MaxNLocator
 
 from unitwave.analysis.psth import PSTH
-from unitwave.analysis.trial_view import alignment_label
 
 # The reference palette's categorical slots, in its fixed, CVD-validated order.
 _CATEGORICAL_LIGHT = [
@@ -394,14 +393,6 @@ def build_population_figure(
 
 # Event lines take the categorical slots in task order; feedback keeps one hue and
 # differs by style (reward solid, error dotted), so outcome is never colour alone.
-_EVENT_SLOTS = {
-    "stimOn_times": 0,
-    "goCue_times": 1,
-    "firstMovement_times": 2,
-    "response_times": 3,
-    "feedback_times": 4,
-    "stimOff_times": 5,
-}
 _EVENT_STYLE = {"error": (0, (1, 1.5))}
 # In IBL the go cue comes within ~1 ms of stimulus onset and feedback within ~1 ms of
 # the response, so those pairs overlap at any readable scale. The go cue and the
@@ -450,7 +441,7 @@ def build_trial_figure(
             ("wheel position\n(rad)", view.wheel["position_t_s"], view.wheel["position_rad"])
         ]
         panels += [("wheel speed\n(rad/s)", view.wheel["speed_t_s"], view.wheel["speed"])]
-    panels += [(_TRACE_LABELS[k], *v) for k, v in view.traces.items()]
+    panels += [(_TRACE_LABELS.get(k, k.replace("_", " ")), *v) for k, v in view.traces.items()]
     notes = []
     if view.not_recorded:
         by_trial: dict[int, list[str]] = {}
@@ -566,12 +557,12 @@ def build_trial_figure(
         _style(ax, t)
         ax.tick_params(labelbottom=ax is axes_p[-1], labelsize=7)
     last = axes_p[-1] if axes_p else ax_r
-    last.set_xlabel(f"time from {alignment_label(view.window.align)} (s)")
+    last.set_xlabel(f"time from {view.align_label} (s)")
 
     # Trial boundaries and events on every axis that shares the time axis.
     def style(e):
         return {
-            "color": t["categorical"][_EVENT_SLOTS[e["event"]]],
+            "color": t["categorical"][e["slot"] % len(t["categorical"])],
             "lw": _EVENT_WIDTH.get(e["event"], 1.3),
             "ls": _EVENT_STYLE.get(e["kind"], "-"),
         }
@@ -584,7 +575,7 @@ def build_trial_figure(
             ax.axvline(e["time_s"], zorder=3 if e["event"] in _EVENT_WIDTH else 4, **style(e))
     # One legend entry per event label drawn, in task order (reward before error).
     legend = {}
-    for e in sorted(view.events, key=lambda e: (_EVENT_SLOTS[e["event"]], e["kind"] or "")):
+    for e in sorted(view.events, key=lambda e: (e["slot"], e["kind"] or "")):
         legend.setdefault(e["label"], Line2D([], [], **style(e)))
     if legend:
         fig.legend(

@@ -11,9 +11,13 @@ Conventions:
   lacks is refused as a zero, never guessed.
 - **Rows:** grouped by probe, then by depth; the most superficial unit (largest
   distance from the tip) on top, units without a depth last in their probe.
-- **Events:** each event column the trials table has. An event a shown trial has no
-  time for is listed as not recorded on that trial and not drawn. A column the table
-  lacks is listed as absent from the session.
+- **Events:** each of the task definition's trial-view event columns the trials table
+  has. An event a shown trial has no time for is listed as not recorded on that trial
+  and not drawn. A column the table lacks is listed as absent from the session.
+- **Header:** the trial's level of each of the task's conditions (None where the
+  table has no value; an excluded trial says why), its reaction time when the task
+  declares movement events, and its flag filters. For IBL, the fields the page has
+  always had (side, signed contrast, choice, outcome, block, bwm_include) too.
 - **Neighbouring trials** are consecutive rows of the trials table, around the
   current trial, whether or not they pass the trial filters (each says whether).
 """
@@ -26,31 +30,29 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from unitwave.analysis.conditions import LEVEL_NAMES, signed_contrast, stimulus_side
-from unitwave.analysis.movement import binned_wheel_speed
+from unitwave.analysis.conditions import (
+    LEVEL_NAMES,
+    available_conditions,
+    condition,
+    signed_contrast,
+    stimulus_side,
+)
+from unitwave.analysis.movement import binned_wheel_speed, reaction_times
+from unitwave.analysis.tasks import DEFAULT_TASK, TaskDefinition, load_task
 from unitwave.data.session import Session, TimeSeries
 
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "trial_view.yaml"
 _KEYS = {"pre_pad_s", "post_pad_s", "speed_bin_s", "n_trials", "max_trials"}
 NUMBERING = "0-based (row of the trials table)"
 TRIAL_START = "trial_start"
-# trials column -> label, in task order
-EVENT_COLUMNS = {
-    "stimOn_times": "stimulus on",
-    "goCue_times": "go cue",
-    "firstMovement_times": "first movement",
-    "response_times": "response",
-    "feedback_times": "feedback",
-    "stimOff_times": "stimulus off",
-}
-# Optional single-channel behaviour traces, in the order they are offered.
-TRACES = (
-    "motion_energy_left",
-    "motion_energy_right",
-    "motion_energy_body",
-    "pupil_left",
-    "pupil_right",
-)
+# The IBL definition's trials column -> label, in task order, and its optional
+# single-channel behaviour traces, in the order they are offered.
+EVENT_COLUMNS = dict(load_task().trial_view_events)
+TRACES = load_task().traces
+
+
+def _task(task: TaskDefinition | None) -> TaskDefinition:
+    return task if task is not None else load_task()
 
 
 @dataclass(frozen=True)
@@ -79,8 +81,8 @@ def load_trial_view_config(path: str | os.PathLike = DEFAULT_CONFIG) -> TrialVie
     return cfg
 
 
-def alignment_label(align: str) -> str:
-    return "trial start" if align == TRIAL_START else EVENT_COLUMNS[align]
+def alignment_label(align: str, task: TaskDefinition | None = None) -> str:
+    return "trial start" if align == TRIAL_START else _task(task).trial_view_events[align]
 
 
 def row_order(units: pd.DataFrame) -> list[str]:
@@ -127,9 +129,16 @@ def _value(trials: pd.DataFrame, column: str, k: int) -> float:
 
 
 def trial_window(
-    trials: pd.DataFrame, trial: int, n_trials: int, align: str, pre: float, post: float
+    trials: pd.DataFrame,
+    trial: int,
+    n_trials: int,
+    align: str,
+    pre: float,
+    post: float,
+    task: TaskDefinition | None = None,
 ) -> Window:
     """The plotted window for `n_trials` consecutive trials around `trial`."""
+    columns = _task(task).trial_view_events
     n_total = len(trials)
     if not 0 <= trial < n_total:
         raise ValueError(f"no trial {trial}: this session has trials 0 to {n_total - 1}")
@@ -137,8 +146,8 @@ def trial_window(
         raise ValueError(f"cannot show {n_trials} trials of a {n_total}-trial session")
     if pre < 0 or post < 0:
         raise ValueError("pads must be zero or positive")
-    if align != TRIAL_START and align not in EVENT_COLUMNS:
-        raise ValueError(f"unknown alignment {align!r}; choose {[TRIAL_START, *EVENT_COLUMNS]}")
+    if align != TRIAL_START and align not in columns:
+        raise ValueError(f"unknown alignment {align!r}; choose {[TRIAL_START, *columns]}")
     if align != TRIAL_START and align not in trials:
         raise ValueError(f"the trials table has no {align} column to align on")
     first = int(np.clip(trial - (n_trials - 1) // 2, 0, n_total - n_trials))
@@ -149,7 +158,7 @@ def trial_window(
     zero = _value(trials, "intervals_0" if align == TRIAL_START else align, trial)
     if not np.isfinite(zero):
         raise ValueError(
-            f"{alignment_label(align)} is not recorded on trial {trial}: "
+            f"{alignment_label(align, task)} is not recorded on trial {trial}: "
             "align to the trial start or another event"
         )
     return Window(shown, trial, align, zero, start - pre - zero, stop + post - zero)
@@ -165,27 +174,45 @@ def trial_spikes(spikes, unit_ids, window: Window) -> list[np.ndarray]:
     return out
 
 
-def trial_events(trials: pd.DataFrame, window: Window) -> tuple[list[dict], list[dict], list[str]]:
+def _kind(trials: pd.DataFrame, task: TaskDefinition, column: str, k: int) -> str | None:
+    """Which of the task's split events this time is on trial k (IBL feedback: reward or
+    error), named by the condition reading the split column; None if none applies."""
+    for e in task.events.values():
+        if e.column == column and e.when and e.when[0] in trials:
+            v = _value(trials, e.when[0], k)
+            if v == e.when[1]:
+                names = {}
+                for c in task.conditions.values():
+                    if c.column == e.when[0]:
+                        names.update(c.level_names)
+                return names.get(v, f"{v:g}")
+    return None
+
+
+def trial_events(
+    trials: pd.DataFrame, window: Window, task: TaskDefinition | None = None
+) -> tuple[list[dict], list[dict], list[str]]:
     """(drawn, not recorded, absent) events of the shown trials.
 
-    drawn: {trial, event (column), label, time_s (relative to zero), kind}; kind is
-    "reward" or "error" for feedback with a known outcome, else None.
+    drawn: {trial, event (column), label, time_s (relative to zero), kind, slot}; kind
+    names the split event this time is on (IBL feedback: "reward" or "error"), else
+    None; slot is the column's place in the task's event order.
     not recorded: {trial, event, label} for a trial with no time for an event.
     absent: event columns this trials table does not have.
     """
+    task = _task(task)
+    columns = task.trial_view_events
     drawn, not_recorded = [], []
     for k in window.trials:
-        for column, label in EVENT_COLUMNS.items():
+        for slot, (column, label) in enumerate(columns.items()):
             if column not in trials:
                 continue
             t = _value(trials, column, k)
             if not np.isfinite(t):
                 not_recorded.append({"trial": k, "event": column, "label": label})
                 continue
-            kind = None
-            if column == "feedback_times":
-                kind = {1.0: "reward", -1.0: "error"}.get(_value(trials, "feedbackType", k))
-                label = f"feedback: {kind}" if kind else label
+            kind = _kind(trials, task, column, k)
+            label = f"{label}: {kind}" if kind else label
             drawn.append(
                 {
                     "trial": k,
@@ -193,9 +220,10 @@ def trial_events(trials: pd.DataFrame, window: Window) -> tuple[list[dict], list
                     "label": label,
                     "time_s": t - window.zero_s,
                     "kind": kind,
+                    "slot": slot,
                 }
             )
-    absent = [c for c in EVENT_COLUMNS if c not in trials]
+    absent = [c for c in columns if c not in trials]
     return drawn, not_recorded, absent
 
 
@@ -204,26 +232,58 @@ def _named(trials: pd.DataFrame, column: str, k: int, names: dict) -> str | None
     return None if np.isnan(v) else names.get(v, f"{v:g}")
 
 
-def trial_header(trials: pd.DataFrame, trial: int, keep: np.ndarray) -> dict:
+def trial_header(
+    trials: pd.DataFrame, trial: int, keep: np.ndarray, task: TaskDefinition | None = None
+) -> dict:
     """The trial's conditions; None where the table has no value for it."""
+    task = _task(task)
     k = trial
+    levels = []
+    for name, label in available_conditions(trials, task).items():
+        c = condition(trials, name, task)
+        v = c.values[k]
+        level = None if np.isnan(v) else c.names[c.levels.index(float(v))]
+        excluded = task.conditions[name].excluded if level is None else None
+        levels.append({"name": name, "label": label, "level": level, "excluded": excluded})
+    rt = np.nan
+    if task.movement is not None and all(
+        col in trials
+        for e in (task.movement.stimulus, task.movement.movement)
+        for col in task.events[e].columns
+    ):
+        rt = reaction_times(trials, task)[k]
+    flags = {
+        f.column: (None if pd.isna(trials[f.column].iloc[k]) else bool(trials[f.column].iloc[k]))
+        for f in task.trial_filters.values()
+        if f.kind == "flag" and f.column in trials
+    }
+    header = {
+        "trial": k,
+        "numbering": NUMBERING,
+        "task": task.label,
+        "conditions": levels,
+        "reaction_time_s": None if np.isnan(rt) else float(rt),
+        "flags": flags,
+        "passes_filter": bool(keep[k]),
+    }
+    if task.name == DEFAULT_TASK:  # IBL's own fields, as the page has always had them
+        header.update(_ibl_header(trials, k))
+    return header
+
+
+def _ibl_header(trials: pd.DataFrame, k: int) -> dict:
     has_contrast = "contrastLeft" in trials and "contrastRight" in trials
     side = stimulus_side(trials)[k] if has_contrast else np.nan
     contrast = signed_contrast(trials)[k] if has_contrast else np.nan
-    rt = _value(trials, "firstMovement_times", k) - _value(trials, "stimOn_times", k)
     bwm = trials["bwm_include"].iloc[k] if "bwm_include" in trials else None
     block = _value(trials, "probabilityLeft", k)
     return {
-        "trial": k,
-        "numbering": NUMBERING,
         "side": None if np.isnan(side) else LEVEL_NAMES["side"][side],
         "signed_contrast": None if np.isnan(contrast) else float(contrast),
         "choice": _named(trials, "choice", k, {**LEVEL_NAMES["choice"], 0.0: "no-go (0)"}),
         "outcome": _named(trials, "feedbackType", k, LEVEL_NAMES["outcome"]),
         "block": None if np.isnan(block) else block,
-        "reaction_time_s": None if np.isnan(rt) else float(rt),
         "bwm_include": None if bwm is None or pd.isna(bwm) else bool(bwm),
-        "passes_filter": bool(keep[k]),
     }
 
 
@@ -295,6 +355,7 @@ class TrialView:
     wheel_missing: str | None
     traces: dict[str, tuple[np.ndarray, np.ndarray]] = field(default_factory=dict)
     traces_missing: dict[str, str] = field(default_factory=dict)
+    align_label: str = "trial start"  # what the zero is, in the task's words
 
 
 def _missing(session: Session, name: str) -> str:
@@ -313,6 +374,7 @@ def trial_view(
     post: float | None = None,
     keep: np.ndarray | None = None,
     traces=(),
+    task: TaskDefinition | None = None,
 ) -> TrialView:
     """The single-trial view of `units` ((n_units, ...) with probe and depth_um, the
     units to show) around `trial`. keep: (n_trials,) bool, the trials passing the
@@ -324,9 +386,10 @@ def trial_view(
     assert keep.shape == (len(trials),)
     pre = cfg.pre_pad_s if pre is None else pre
     post = cfg.post_pad_s if post is None else post
-    window = trial_window(trials, trial, n_trials, align, pre, post)
+    task = _task(task)
+    window = trial_window(trials, trial, n_trials, align, pre, post, task)
     rows = row_order(units)
-    drawn, not_recorded, absent = trial_events(trials, window)
+    drawn, not_recorded, absent = trial_events(trials, window, task)
     boundaries = [
         {
             "trial": k,
@@ -337,9 +400,9 @@ def trial_view(
         for k in window.trials
     ]
     wheel = session.behaviour.get("wheel")
-    unknown = sorted(set(traces) - set(TRACES))
+    unknown = sorted(set(traces) - set(task.traces))
     if unknown:
-        raise ValueError(f"unknown behaviour traces {unknown}; choose from {list(TRACES)}")
+        raise ValueError(f"unknown behaviour traces {unknown}; choose from {list(task.traces)}")
     return TrialView(
         window=window,
         rows=rows,
@@ -348,7 +411,7 @@ def trial_view(
         events=drawn,
         not_recorded=not_recorded,
         absent_events=absent,
-        header=trial_header(trials, trial, keep),
+        header=trial_header(trials, trial, keep, task),
         boundaries=boundaries,
         wheel=None if wheel is None else trial_wheel(wheel, window, cfg.speed_bin_s),
         wheel_missing=None if wheel is not None else _missing(session, "wheel"),
@@ -356,4 +419,5 @@ def trial_view(
             n: trial_trace(session.behaviour[n], window) for n in traces if n in session.behaviour
         },
         traces_missing={n: _missing(session, n) for n in traces if n not in session.behaviour},
+        align_label=alignment_label(align, task),
     )

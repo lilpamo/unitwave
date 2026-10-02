@@ -6,6 +6,135 @@ first.
 
 ---
 
+### 2026-10-01 — Step 3: user-defined tasks (`analysis/tasks.py`, `configs/tasks/`)
+
+**What (the user's step 3):** a task definition file says what a trials table
+means. IBL's task is now one built-in definition, `configs/tasks/ibl.yaml`, read
+exactly as the app always read IBL's trials. The schema (`analysis/tasks.py`):
+- `required_columns`: without these the table can't be read as this task at all;
+- `events`: a time column, optionally limited to trials where another column equals
+  a value (IBL's reward and error feedback);
+- `trial_view_events`: the time columns the single-trial view draws, in order;
+- `conditions`: a column (values that mean "missing" become NaN) or a named
+  derivation. Each has a type (categorical, ordinal or continuous), level names (a
+  map, a format, or from the derivation) and the reason trials are excluded;
+- `strata`: what a null permutes within (a condition or a derivation);
+- `comparisons`: the two-level selectivity tests offered, each with its null. The
+  null is a permutation within declared strata, a plain permutation
+  (`permute: all`), or pseudo-sessions from a known block generator (only
+  `ibl_blocks`; any other is refused). Each also has a window: response or
+  baseline;
+- `movement`: the stimulus and movement events, and the strata reaction times are
+  permuted within;
+- `behaviour`: the wheel and traces the task uses;
+- `trialstruct`: what the no-spikes decoding baseline may use. It is recorded now
+  and used at step 8;
+- `trial_filters`: flag, exclude-values or select filters, with their exclusion
+  reasons and level names.
+
+**Decisions inside the schema:**
+- **Derivations are code, not formulas.** They are named functions in
+  `DERIVATIONS`, each tested by hand: signed contrast, stimulus side, signed
+  contrast with zero split by side, absolute contrast, and the median split of a
+  difference. A definition declares structure only, so nothing a user writes is
+  evaluated.
+- **The null's key is `null_model`.** A bare `null:` key reads as YAML's null.
+- **Required vs optional columns.** Missing required columns refuse the definition
+  in plain language, naming the columns. Any other feature whose columns are
+  missing is only unavailable, and says which columns it lacks. This is how Phy
+  sessions with only a few IBL columns keep working unchanged.
+- **Malformed definitions are refused, saying where and why.** Examples: unknown or
+  missing keys; an unknown derivation, or one given the wrong number of columns; a
+  comparison of a missing condition, or with three levels; an unknown strata or
+  block generator; a bad window or filter kind.
+
+**No behaviour change for IBL (the comparison asked for):**
+- **The record.** It was made at 7490130, before any refactor, through Studio's own
+  methods on d23a44ef (`tests/golden/`): 207 arrays and 117 texts.
+  - **Arrays:** PSTH means, SEMs and raster trial lists for 4 QC units at each of 4
+    events; population rates; split PSTHs and tuning tables for each of 6
+    conditions; each condition's values; the trial-filter mask; responsiveness on
+    all trials and on movement-free trials; selectivity for each of 4 comparisons;
+    movement locking.
+  - **Texts:** every caption, level name, null name and summary, and the
+    single-trial JSON for trials 12 and 236.
+- **After:**
+  - All 207 arrays are bitwise equal.
+  - Every caption and label is identical.
+  - The page's JSON gained only these named fields: a trial filter's `kind`, and
+    the trial header's `task`, `conditions` and `flags`. The test allows those and
+    nothing else.
+- **Trial-filter keys,** which caches and saved sets use, are byte-identical,
+  checked against the old code.
+- **Every existing test passes unchanged.**
+
+**Choosing a definition:**
+- **Phy folders:**
+  - **How:** a Task chooser on the homepage (built-ins, or a YAML file's path), or
+    `--task` on the command line.
+  - **The events CSV** may use the definition's columns besides IBL's. Its time
+    columns are checked against the recording's span.
+  - **A table without the required columns is refused,** e.g. "The trials table
+    has no tone_times column, which the task definition 'Tone–lick task'
+    ('tone_lick') needs. Choose another task definition, or add the column to the
+    events file."
+- **IBL sessions** use IBL's definition.
+- **NWB:** Studio has no NWB intake yet. It arrives with step 5 and chooses a
+  definition the same way (`Source.task`).
+
+**Names everywhere:**
+- The page uses the task's names in captions, the trial filters, the single-trial
+  header, the movement notes and selectivity summaries.
+- Exports use them too.
+- The project file records the task with the source: `task`, `task_label`, and
+  `task_sha256` of the definition. Reopening warns if the definition changed. Files
+  saved before this step have no task and open with IBL's definition, which is what
+  they were computed with.
+
+**Proven on a non-IBL task:** `tests/test_task_custom.py`, a hand-built tone/lick
+task with its own YAML. It runs from a Phy folder and events CSV through Studio:
+- the session description, split PSTHs and tuning curves;
+- selectivity under a stratified null (pitch within loudness) and a plain
+  permutation;
+- movement locking to the first lick, and its trial filters;
+- the single-trial view, the export and the project file;
+- the refusal of a missing required column, and of columns no definition reads.
+
+**Differences from the plan, and choices made along the way:**
+- **Colours.** IBL's conditions keep their colours: diverging sides and the
+  contrast ramp. Another task's levels take the categorical slots in order. An
+  ordinal ramp for other tasks waits until one needs it.
+- **Single-trial header.** It now lists the task's conditions by the task's names.
+  - An excluded trial says why: "excluded: no-go trials (choice 0)" where the page
+    said "no-go (0)".
+  - The exact reaction time is labelled "first movement − stimulus onset".
+  - IBL's old header fields stay in the JSON.
+- **Small label changes on the IBL page.** Filter labels come from the definition:
+  "BWM trial inclusion" (was "… only"), and blocks read "p(left) 0.2" (was "0.2").
+  The homepage's BWM trial filters are unchanged.
+- **Still IBL-only until step 8:** decoding and region summaries. Trajectories
+  already split by the task's conditions.
+- **Phy events columns must be numeric.** A condition held as text would need a
+  mapping to numbers, which waits until a dataset needs it.
+
+**Added after review: "Studio was updated: restart it"** (`studio/freshness.py`).
+- **Why:** on 2026-10-01 a Studio left running since the morning served the new
+  page scripts with its old server code. The session page failed with "Cannot read
+  properties of undefined" and showed no data.
+- **How:** the server records a fingerprint of its code files when it starts (the
+  path, size and modification time of every `.py`, `.js`, `.html` and `.css` file
+  in the package). Once they change, the homepage and the session page are
+  replaced by a plain page asking for a restart.
+  - The page says that saved projects are kept, and that an open session's view
+    should be saved first.
+  - Pages already open keep working until reloaded, since their scripts match the
+    running code.
+  - Changing the files back doesn't clear it.
+- **Tested** in `tests/test_studio_freshness.py`.
+
+**Not changed:** `preprocess/`, `splits/`, QC defaults, cache keys and the data
+folder. No dependency was added (PyYAML is in the stack).
+
 ### 2026-10-01 — Next: other datasets and tasks
 
 **The aim (the user's plan, 2026-10-01):** UnitWave on any task, proven dataset by

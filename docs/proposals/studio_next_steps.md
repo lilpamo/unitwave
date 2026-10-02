@@ -36,7 +36,29 @@ This section, and the DECISIONS.md entry.
 Pending: a column in `docs/PRIOR_ART.md` §F's matrix, "works with tasks and
 datasets beyond one lab".
 
-### Step 3. User-defined tasks — planned
+### Step 3. User-defined tasks — built (2026-10-01)
+
+Built (`docs/DECISIONS.md`, "Step 3: user-defined tasks"): `analysis/tasks.py`, and
+IBL's definition in `configs/tasks/ibl.yaml`. On d23a44ef, all 207 recorded arrays
+are bitwise equal before and after, and every caption is identical. Every existing
+test passes unchanged, and a hand-built tone/lick task runs end to end. Differences
+from the plan:
+- **NWB files** can't choose a definition yet: Studio has no NWB intake until step
+  5, which uses the same `Source.task`.
+- **Derivations are named code** (`DERIVATIONS`), not formulas in the file. The
+  null's key is `null_model`, since YAML reads `null:` as nothing.
+- **Single-trial header:** it lists the task's conditions. An excluded trial says
+  why; IBL's no-go now reads "excluded: no-go trials (choice 0)".
+- **IBL labels:** filter labels on the session page come from the definition
+  ("BWM trial inclusion", "p(left) 0.2").
+- **Colours:** another task's levels take the categorical slots in order.
+- **Still IBL-only until step 8:** decoding and region summaries.
+- **Phy events columns must be numeric.**
+- **Added: "Studio was updated: restart it."** A Studio whose code files changed
+  after it started asks for a restart instead of showing pages that would mix new
+  scripts with old server code (`studio/freshness.py`).
+
+The plan, as written:
 
 Today, events and conditions are hard-coded to IBL's trial columns.
 - **A task definition file** per task, YAML in `configs/tasks/`. It declares:

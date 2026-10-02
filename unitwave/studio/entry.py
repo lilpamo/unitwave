@@ -102,6 +102,7 @@ def recent_projects(directory: str | os.PathLike) -> list[dict]:
             continue
         source = {k: v for k, v in raw.get("source", {}).items() if v is not None}
         source.pop("release", None)
+        source.pop("task_sha256", None)
         rows.append(
             {
                 "name": project_stem(path),

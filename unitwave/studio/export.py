@@ -48,7 +48,6 @@ from unitwave.viz.studio_plots import (
     build_tuning_figure,
     build_unit_figure,
     build_wheel_figure,
-    condition_colours,
     probe_colours,
     save_vector,
 )
@@ -142,8 +141,8 @@ def export_view(studio, view: dict, runs_dir: str | os.PathLike) -> Path:
                 curve["mean_hz"].to_numpy(),
                 curve["sem_hz"].to_numpy(),
                 curve["n"].tolist(),
-                condition_colours(view["split"], t["levels"], THEME),
-                view["split"] in ("contrast", "block"),
+                studio._colours(view["split"], t["levels"], THEME),
+                studio.task.conditions[view["split"]].type == "ordinal",
                 THEME,
                 t["caption"],
             )

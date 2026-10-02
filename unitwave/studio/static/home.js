@@ -117,6 +117,7 @@ function setup(d) {
   $('dateFrom').max = $('dateTo').max = o.dates[1];
   $('minRegionUnits').value = o.min_region_units;
   $('modalities').innerHTML = o.modalities.map((m) => `<label><input type="checkbox" value="${esc(m)}"> ${esc(m)}</label>`).join('');
+  for (const t of o.tasks) $('phyTask').add(new Option(`${t.label} (${t.name})`, t.name, t.name === o.default_task, t.name === o.default_task));
   const t = o.default_trial_filter, lv = o.trial_levels;
   $('tfInclude').checked = t.bwm_include;
   $('tfNogo').checked = t.exclude_nogo;
@@ -238,7 +239,9 @@ $('rows').addEventListener('change', (e) => {
   $('setMsg').textContent = `${state.selected.size} sessions selected.`;
 });
 $('phyPath').addEventListener('input', completePhy);
-$('phyOpen').addEventListener('click', () => openData({ kind: 'phy', path: $('phyPath').value }, `Phy folder ${$('phyPath').value}`));
+$('phyOpen').addEventListener('click', () => openData(
+  { kind: 'phy', path: $('phyPath').value, task: $('phyTaskFile').value.trim() || $('phyTask').value },
+  `Phy folder ${$('phyPath').value}`));
 $('projects').addEventListener('click', (e) => { const b = e.target.closest('[data-project]'); if (b) openData({ kind: 'project', name: b.dataset.project }, `project ${b.dataset.project}`); });
 $('setSave').addEventListener('click', async () => {
   try {

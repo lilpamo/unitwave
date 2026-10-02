@@ -5,7 +5,9 @@ one writes the new ending beside it, never over it (docs/DECISIONS.md, "Rename:
 UnitWave Studio").
 
 A project holds no results. It records:
-- the data source: an IBL session, or a Phy folder plus events CSV;
+- the data source: an IBL session, or a Phy folder plus events CSV, and the task
+  definition its trials are read with (analysis.tasks; files saved before step 3 have
+  none and open with IBL's, which is what they were computed with);
 - a sha256 of each source file (Phy) and a fingerprint of the loaded Session;
 - the QC and analysis configs, by hash and content;
 - the view: event, window, bin, baseline, region level and node, filters, unit,
@@ -29,6 +31,7 @@ import pandas as pd
 from unitwave.analysis.correlograms import DEFAULT_CONFIG as CORRELOGRAM_CONFIG
 from unitwave.analysis.movement import DEFAULT_CONFIG as MOVEMENT_CONFIG
 from unitwave.analysis.responsiveness import DEFAULT_CONFIG as ANALYSIS_CONFIG
+from unitwave.analysis.tasks import DEFAULT_TASK, load_task, task_path
 from unitwave.analysis.trajectories import DEFAULT_CONFIG as TRAJECTORY_CONFIG
 from unitwave.analysis.trial_view import DEFAULT_CONFIG as TRIAL_VIEW_CONFIG
 from unitwave.analysis.trial_view import load_trial_view_config
@@ -98,13 +101,15 @@ DEFAULT_VIEW = {
 
 @dataclass(frozen=True)
 class Source:
-    """kind "ibl" (eid, backend) or "phy" (folder, events)."""
+    """kind "ibl" (eid, backend) or "phy" (folder, events); task: the task definition,
+    a built-in name or a YAML file's path."""
 
     kind: str
     eid: str | None = None
     backend: str | None = None
     folder: str | None = None
     events: str | None = None
+    task: str = DEFAULT_TASK
 
     def __post_init__(self):
         needs = {"ibl": ("eid", "backend"), "phy": ("folder", "events")}
@@ -113,11 +118,22 @@ class Source:
         if any(getattr(self, f) is None for f in needs[self.kind]):
             raise ValueError(f"a {self.kind} source needs {needs[self.kind]}")
 
+    @classmethod
+    def from_record(cls, record: dict) -> "Source":
+        """A project's source record, without what was recorded beside it (the IBL
+        release, the task definition's label and hash)."""
+        return cls(**{k: v for k, v in record.items() if k not in _RECORDED_BESIDE})
+
+
+# Recorded with a source in a project file, never read back as its fields.
+_RECORDED_BESIDE = ("release", "task_label", "task_sha256")
+
 
 def load_source(source: Source):
     """(Session, unit QC) for a source, with the QC that fits its data."""
     if source.kind == "phy":
-        return load_session_phy(source.folder, source.events), load_phy_qc_config()
+        task = load_task(source.task)
+        return load_session_phy(source.folder, source.events, task=task), load_phy_qc_config()
     return load_session(source.eid, source.backend), load_qc_config()
 
 
@@ -189,6 +205,8 @@ def make_project(source: Source, session: Session, qc, view: dict) -> dict:
     }
     if source.kind == "ibl":
         project["source"]["release"] = key_parts(source.eid, source.backend)["source"]
+    project["source"]["task_label"] = load_task(source.task).label
+    project["source"]["task_sha256"] = _sha256(task_path(source.task))
     return project
 
 
@@ -235,10 +253,14 @@ def open_project(path: str | os.PathLike):
             f"{path} is project version {project.get('version')}; this Studio reads "
             f"version {PROJECT_VERSION}"
         )
-    fields = {k: v for k, v in project["source"].items() if k != "release"}
-    source = Source(**fields)
+    source = Source.from_record(project["source"])
     session, qc = load_source(source)
     warnings = []
+    saved_task = project["source"].get("task_sha256")
+    if saved_task is not None and saved_task != _sha256(task_path(source.task)):
+        warnings.append(
+            f"the task definition {task_path(source.task)} changed since the project was saved"
+        )
     saved, now = project["files"], file_hashes(source)
     for name in sorted(set(saved) | set(now)):
         if name not in now:

@@ -72,6 +72,8 @@
         <h4>Open a Phy folder</h4>
         <p class="note" id="phyRoot"></p>
         <div class="inline"><input id="phyPath" list="phyChoices" placeholder="folder under the root, e.g. mouse1/probe00" autocomplete="off"><datalist id="phyChoices"></datalist><button class="btn" id="phyOpen">Open</button></div>
+        <div class="inline"><label for="phyTask">Task</label><select id="phyTask"></select><input id="phyTaskFile" placeholder="or a task definition file (.yaml)" autocomplete="off"></div>
+        <p class="note">The events file is read with this task's column names, events and conditions. A file without the columns it needs is refused, naming them.</p>
         <p class="note" id="phyMsg"></p>
         <h4>Recent projects</h4>
         <div class="list" id="projects"></div>
