@@ -89,7 +89,21 @@ Today, events and conditions are hard-coded to IBL's trial columns.
   - a hand-built non-IBL trials table with its own definition works end to end;
   - malformed definitions are refused.
 
-### Step 4. QC from spike times, for any source — planned
+### Step 4. QC from spike times, for any source — built (2026-10-02)
+
+Built (`docs/DECISIONS.md`, "Step 4: unit QC from spike times"): `qc/spike_times.py`,
+`configs/qc_spikes.yaml`, and `cli/qc_agreement.py` for the agreement report.
+Differences from the plan:
+- **Presence ratio is over the task period,** in 10 s bins, at least 0.9 (the user's
+  choice). On the 9 robustness-pass sessions, 74% of units get the same verdict from
+  IBL's label rule and from spike times. 706 units pass only IBL's rule: 560 on
+  presence and 211 on refractory violations. The bin width matters: Allen's 100
+  bins per task would fail 320 units, not 560. That is for the user to decide.
+- **A Phy folder with no label files now uses the spike-time rule** (the user's
+  choice). It used to fail every unit.
+- **NWB quality columns** wait for step 5's NWB intake.
+
+The plan, as written:
 
 Some sources have no QC labels (e.g. Steinmetz 2019 has no quality metrics).
 - **A source-independent rule, from spike times only:**

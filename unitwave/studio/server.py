@@ -113,6 +113,7 @@ from unitwave.data.cluster_files import (
 from unitwave.data.load import DataConfig, key_parts, load_data_config
 from unitwave.data.manifest import MANIFEST_VERSION, Manifest, build_manifest
 from unitwave.qc.phy import PhyUnitQC
+from unitwave.qc.spike_times import UNAVAILABLE, SpikeQC, load_spike_qc_config
 from unitwave.studio import APP_NAME
 from unitwave.studio.entry import (
     complete_phy_path,
@@ -124,11 +125,13 @@ from unitwave.studio.export import export_view
 from unitwave.studio.freshness import Freshness
 from unitwave.studio.project import (
     DEFAULT_VIEW,
+    REPO,
     SUFFIX,
     Source,
     load_source,
     make_project,
     open_project,
+    qc_config_path,
     save_project,
     saving_path,
 )
@@ -160,6 +163,11 @@ DEFAULT_EID = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
 _MESH = re.compile(r"^/mesh/(\d+)\.obj$")
 _MAX_BODY = 1 << 20
 RUNS = Path(__file__).resolve().parents[2] / "runs"
+
+
+def _number(value) -> float | None:
+    """A float for JSON; None for NaN or a missing value."""
+    return None if value is None or pd.isna(value) else float(value)
 
 
 def _records(frame: pd.DataFrame) -> list[dict]:
@@ -204,7 +212,9 @@ class Studio:
         self.project_path = None if project_path is None else saving_path(project_path)
         self.view = {**DEFAULT_VIEW, **(view or {})}
         self.warnings = list(warnings)
-        self.units = unit_table(session, qc)
+        # The spike-time rule shown beside the source's own (qc.spike_times).
+        self.spike_qc = qc if isinstance(qc, SpikeQC) else load_spike_qc_config()
+        self.units = unit_table(session, qc, self.spike_qc)
         self.atlas_root = atlas_root
         self.has_regions = "units.acronym" in session.available.present
         self.has_positions = all(f"units.{a}" in session.available.present for a in "xyz")
@@ -317,6 +327,7 @@ class Studio:
             "n_trials": self.session.n_trials,
             "n_units_total": len(self.units),
             "n_units_passing": int(self.units["qc_passed"].sum()),
+            "n_units_passing_spikes": int(self.units["spike_qc_passed"].sum()),
             "task": self._task_json(),
             "events": available_events(self.session.trials, self.task),
             "levels": list(LEVELS),
@@ -333,6 +344,7 @@ class Studio:
             },
             "selectivity": dict(self.selectivity_cfg.__dict__),
             "trial_filters": available_trial_filters(self.session.trials, self.task),
+            "qc": self._qc_info(),
             "trial_levels": self._trial_levels(),
             "movement": {
                 "wheel": "wheel" in self.session.behaviour,
@@ -410,6 +422,28 @@ class Studio:
             for e in (m.stimulus, m.movement)
             for c in self.task.events[e].columns
         )
+
+    def _qc_info(self) -> dict:
+        """Which rule decides QC here, and the spike-time rule shown beside it."""
+        qc = self.qc
+        rule = (
+            "spike times"
+            if isinstance(qc, SpikeQC)
+            else "Phy group" if isinstance(qc, PhyUnitQC) else "IBL label"
+        )
+        s = self.spike_qc
+        return {
+            "rule": rule,
+            "config": str(qc_config_path(qc).relative_to(REPO)),
+            "spike_config": str(qc_config_path(s).relative_to(REPO)),
+            "spike_rule": (
+                f"task-period rate ≥ {s.min_firing_rate_hz:g} Hz; IBL's sliding refractory "
+                f"test ({s.refractory_contamination:.0%} contamination, "
+                f"{1 - s.refractory_alpha:.0%} confidence); presence ratio ≥ "
+                f"{s.min_presence_ratio:g} in {s.presence_window_s:g} s bins over the task"
+            ),
+            "spike_unavailable": UNAVAILABLE,
+        }
 
     def _movement_names(self) -> dict:
         """The task's stimulus and movement events, and the locking null, in its words."""
@@ -1193,7 +1227,7 @@ class Studio:
         unit = q["unit"]
         if unit not in self.units.index:
             raise ValueError(f"no unit {unit!r} in this session")
-        phy = isinstance(self.qc, PhyUnitQC)
+        phy = isinstance(self.qc, PhyUnitQC | SpikeQC)  # rules that run the refractory test
         contamination, alpha = (
             (self.qc.refractory_contamination, self.qc.refractory_alpha)
             if phy
@@ -1240,7 +1274,16 @@ class Studio:
             "qc": {
                 "passed": uq.qc_passed,
                 "reasons": uq.qc_reasons,
-                "config": "configs/qc_phy.yaml" if d["rp_used_by_qc"] else "configs/qc.yaml",
+                "config": self._qc_info()["config"],
+            },
+            "spike_qc": {
+                "passed": bool(self.units.at[uq.unit, "spike_qc_passed"]),
+                "reasons": [
+                    r for r in str(self.units.at[uq.unit, "spike_qc_reason"]).split("; ") if r
+                ],
+                "presence_ratio": _number(self.units.at[uq.unit, "presence_ratio"]),
+                "is_the_qc": self._qc_info()["rule"] == "spike times",
+                **{k: v for k, v in self._qc_info().items() if k.startswith("spike_")},
             },
             "refractory": {
                 "passed": rd.passed,

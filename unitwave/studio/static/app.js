@@ -60,7 +60,13 @@ async function init() {
   const phy = s.eid.startsWith('phy:');
   $('source').textContent = phy ? `Phy folder · ${s.eid.slice(4)}` : `IBL session · ${s.eid}`;
   $('source').title = s.eid;
-  $('counts').textContent = `${s.n_units_passing} of ${s.n_units_total} units pass QC · ${s.n_trials} trials`;
+  // The source's own QC rule decides; the spike-time verdict is shown beside it.
+  const own = s.qc.rule !== 'spike times';
+  $('counts').textContent = `${s.n_units_passing} of ${s.n_units_total} units pass QC (${s.qc.rule}` +
+    `${own ? `; ${s.n_units_passing_spikes} pass on spike times` : ''}) · ${s.n_trials} trials`;
+  $('qcHead').title = `This source's QC rule: ${s.qc.rule} (${s.qc.config})`;
+  $('spikeQcHead').title = `Spike times only (${s.qc.spike_config}): ${s.qc.spike_rule}`;
+  $('spikeQcHead').hidden = !own;
   for (const [k, v] of Object.entries(s.events)) $('event').add(new Option(v, k));
   for (const [k, v] of Object.entries(s.conditions)) $('split').add(new Option(v, k));
   const noRegion = s.missing['units.acronym'];
@@ -357,6 +363,8 @@ function renderTable() {
       return `<tr data-id="${esc(u.id)}" aria-selected="${u.id === state.unit}"><td>${esc(u.id)}</td><td>${region}</td>` +
         `<td class="num">${fmt(u.depth_um, 0)}</td><td class="num">${fmt(u.firing_rate_hz, 2)}</td><td>${fmt(u.label, 2)}</td>` +
         `<td class="${u.qc_passed ? '' : 'fail'}" title="${esc(u.qc_reason)}">${u.qc_passed ? 'pass' : 'fail'}</td>` +
+        (state.session.qc.rule === 'spike times' ? ''
+          : `<td class="${u.spike_qc_passed ? '' : 'fail'}" title="${esc(u.spike_qc_reason || 'passes on spike times')}">${u.spike_qc_passed ? 'pass' : 'fail'}</td>`) +
         `<td class="resp" title="${respTitle(u)}">${{ up: '↑', down: '↓', no: '·' }[u.resp] || fmt(null)}</td>` +
         `<td class="num" title="${selTitle(u)}">${u.sel_auroc == null ? fmt(null) : u.sel_auroc.toFixed(2) + (u.sel ? '*' : '')}</td>` +
         `<td class="resp" title="${lockTitle(u)}">${u.locked == null ? fmt(null) : u.locked ? (u.lock_hz > 0 ? '↑' : '↓') : '·'}</td>` +
@@ -496,9 +504,16 @@ function renderQualityFacts(d) {
       `<tr><td>${yes(c.noise_cutoff_pass)}</td><td>noise cutoff</td><td>${num(c.noise_cutoff, 2)} (&lt; 5)</td></tr>` +
       `<tr><td>${yes(c.amplitude_pass)}</td><td>median amplitude</td><td>${num(c.amp_median_uv, 1)} µV (&gt; 50 µV)</td></tr></table>`;
   }
+  const sq = d.spike_qc;
+  const spikeReasons = sq.reasons.length ? `<ul>${sq.reasons.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
+  const presence = sq.presence_ratio == null ? fmt(null) : sq.presence_ratio.toFixed(3);
+  const spikes = sq.is_the_qc ? '' :
+    `<div class="verdict ${sq.passed ? '' : 'fails'}">${sq.passed ? 'Passes' : 'Fails'} spike-time QC, shown beside it (${esc(sq.spike_config)})</div>${spikeReasons}`;
+  const unavailable = Object.entries(sq.spike_unavailable).map(([k, why]) => `${k.replace('_', ' ')}: ${why}`).join('; ');
   $('qualityFacts').innerHTML =
-    `<div class="verdict ${d.qc.passed ? '' : 'fails'}">${d.qc.passed ? 'Passes QC' : 'Fails QC'} (${esc(d.qc.config)})</div>${reasons}` +
-    `<div>${d.n_spikes.toLocaleString()} spikes · ${d.rate_hz == null ? fmt(null) : d.rate_hz.toFixed(2) + ' Hz'} · presence ratio ${d.presence_ratio.toFixed(3)}</div>` +
+    `<div class="verdict ${d.qc.passed ? '' : 'fails'}">${d.qc.passed ? 'Passes QC' : 'Fails QC'} (${esc(d.qc.config)})</div>${reasons}${spikes}` +
+    `<div>Presence ratio over the task: ${presence} (spike-time QC's) · not available: ${esc(unavailable)}</div>` +
+    `<div>${d.n_spikes.toLocaleString()} spikes · ${d.rate_hz == null ? fmt(null) : d.rate_hz.toFixed(2) + ' Hz'} · presence ratio over the recording ${d.presence_ratio.toFixed(3)} (IBL's)</div>` +
     `<div>${rp}</div>${ibl}`;
 }
 async function plotQuality() {

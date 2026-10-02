@@ -101,7 +101,7 @@
       <section class="card area-table">
         <header><h3>Units</h3><span class="meta" id="tableMeta"></span></header>
         <div class="table"><table>
-          <thead><tr><th>Unit</th><th>Region</th><th class="num">Depth µm</th><th class="num">Rate Hz</th><th>Label</th><th>QC</th><th title="Responsive to this event (q &lt; alpha)">Resp.</th><th class="num" title="Selectivity: AUROC between the split's two conditions; * when q &lt; alpha">Sel.</th><th title="Locked to the trial's first movement (q &lt; alpha): rate up or down after it">Mov.</th><th title="Putative excitatory connections among the units tested: outgoing → and incoming ←">Conn.</th></tr></thead>
+          <thead><tr><th>Unit</th><th>Region</th><th class="num">Depth µm</th><th class="num">Rate Hz</th><th>Label</th><th id="qcHead">QC</th><th id="spikeQcHead" title="Unit QC from spike times only (configs/qc_spikes.yaml), shown beside this source's own rule">Spike QC</th><th title="Responsive to this event (q &lt; alpha)">Resp.</th><th class="num" title="Selectivity: AUROC between the split's two conditions; * when q &lt; alpha">Sel.</th><th title="Locked to the trial's first movement (q &lt; alpha): rate up or down after it">Mov.</th><th title="Putative excitatory connections among the units tested: outgoing → and incoming ←">Conn.</th></tr></thead>
           <tbody id="rows"></tbody>
         </table></div>
       </section>

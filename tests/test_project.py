@@ -134,6 +134,7 @@ def test_every_config_behind_a_labelled_result_is_hashed(tmp_path):
     saved = json.loads(path.read_text())
     assert set(saved["configs"]) == {
         "qc",
+        "spike_qc",
         "analysis",
         "selectivity",
         "movement",
@@ -142,6 +143,7 @@ def test_every_config_behind_a_labelled_result_is_hashed(tmp_path):
         "trajectories",
     }
     assert saved["configs"]["movement"]["path"] == "configs/movement.yaml"
+    assert saved["configs"]["spike_qc"]["path"] == "configs/qc_spikes.yaml"
     # Files saved before a config was recorded say so, rather than failing to open.
     del saved["configs"]["movement"]
     path.write_text(json.dumps(saved))

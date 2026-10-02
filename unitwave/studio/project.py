@@ -41,6 +41,8 @@ from unitwave.data.load import key_parts, load_session
 from unitwave.data.session import Session
 from unitwave.qc.phy import DEFAULT_CONFIG as PHY_QC_CONFIG
 from unitwave.qc.phy import PhyUnitQC, load_phy_qc_config
+from unitwave.qc.spike_times import DEFAULT_CONFIG as SPIKE_QC_CONFIG
+from unitwave.qc.spike_times import SpikeQC, load_spike_qc_config
 from unitwave.qc.units import DEFAULT_CONFIG as QC_CONFIG
 from unitwave.qc.units import load_qc_config
 
@@ -50,6 +52,8 @@ SUFFIX = ".unitwave.json"
 OLD_SUFFIXES = (".ndstudio.json",)
 SUFFIXES = (SUFFIX, *OLD_SUFFIXES)
 REPO = Path(__file__).resolve().parents[2]
+# Phy's label files: a folder with neither is judged on spike times (qc.spike_times).
+PHY_LABEL_FILES = ("cluster_group.tsv", "cluster_KSLabel.tsv")
 # Files a Phy folder may hold that change what Studio shows.
 PHY_FILES = (
     "params.py",
@@ -130,10 +134,14 @@ _RECORDED_BESIDE = ("release", "task_label", "task_sha256")
 
 
 def load_source(source: Source):
-    """(Session, unit QC) for a source, with the QC that fits its data."""
+    """(Session, unit QC) for a source, with the QC that fits its data: IBL's label
+    rule, the Phy group rule for a Phy folder with label files, and the spike-time rule
+    for one without (qc.spike_times)."""
     if source.kind == "phy":
         task = load_task(source.task)
-        return load_session_phy(source.folder, source.events, task=task), load_phy_qc_config()
+        session = load_session_phy(source.folder, source.events, task=task)
+        labelled = any((Path(source.folder) / name).exists() for name in PHY_LABEL_FILES)
+        return session, load_phy_qc_config() if labelled else load_spike_qc_config()
     return load_session(source.eid, source.backend), load_qc_config()
 
 
@@ -167,12 +175,19 @@ def session_fingerprint(session: Session) -> str:
     return digest.hexdigest()
 
 
+def qc_config_path(qc) -> Path:
+    """The config file of a unit QC rule."""
+    if isinstance(qc, SpikeQC):
+        return Path(SPIKE_QC_CONFIG)
+    return Path(PHY_QC_CONFIG if isinstance(qc, PhyUnitQC) else QC_CONFIG)
+
+
 def _configs(qc) -> dict:
-    path = PHY_QC_CONFIG if isinstance(qc, PhyUnitQC) else QC_CONFIG
     return {
         name: {"path": str(p.relative_to(REPO)), "sha256": _sha256(p)}
         for name, p in (
-            ("qc", Path(path)),
+            ("qc", qc_config_path(qc)),
+            ("spike_qc", Path(SPIKE_QC_CONFIG)),
             ("analysis", Path(ANALYSIS_CONFIG)),
             ("selectivity", Path(SELECTIVITY_CONFIG)),
             ("movement", Path(MOVEMENT_CONFIG)),

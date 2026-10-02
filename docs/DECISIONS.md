@@ -6,6 +6,85 @@ first.
 
 ---
 
+### 2026-10-02 — Step 4: unit QC from spike times (`qc/spike_times.py`, `configs/qc_spikes.yaml`)
+
+**What (the user's step 4):** a QC rule that needs only spike times and the task
+period, for sources without their own labels.
+- **Task-period firing rate:** at least 0.1 Hz, as `configs/qc.yaml` and
+  `configs/qc_phy.yaml`.
+- **Refractory violations:** IBL's sliding refractory-period test
+  (`qc/refractory.py`), at 10% contamination and 90% confidence, as
+  `configs/qc_phy.yaml`.
+- **Presence ratio:** at least 0.9. It is the share of whole 10 s bins across the
+  task period, from the first trial's start, holding a spike. The task's last part,
+  shorter than a bin, isn't binned. A task shorter than one bin leaves it undefined,
+  and the unit fails, saying so.
+- **Amplitude metrics are declared unavailable** (`UNAVAILABLE`): spike amplitudes
+  aren't stored for any source.
+
+**Signed off by the user (2026-10-02, in chat):**
+- **Presence:** task period, 10 s bins, at least 0.9.
+- **A Phy folder with no label files** (neither `cluster_group.tsv` nor
+  `cluster_KSLabel.tsv`) uses the spike-time rule. It used to fail every unit as
+  "group missing". Folders with label files keep the signed-off Phy rule unchanged.
+- **IBL sessions keep their label rule,** and the spike-time verdict is computed when
+  a session opens, shown beside it.
+
+**Where it shows:**
+- **The units table** has a Spike QC column beside QC. It is hidden when spike times
+  are the source's own rule.
+- **The counts line** names the rule: "390 of 398 units pass QC (IBL label; 267 pass
+  on spike times)".
+- **The quality panel** gives both verdicts with their reasons, and the presence
+  ratio over the task beside IBL's presence ratio over the recording. It also lists
+  the unavailable amplitude metrics.
+- **Project files** hash `configs/qc_spikes.yaml` as `spike_qc`. The project test's
+  list of configs gained that entry, which adds to the test and loosens nothing.
+- **Cost:** opening a session takes 2–4 s longer, mostly the refractory test:
+  - 2.9 s for dd4da095 (536 units), measured on an idle machine;
+  - 3.4 s for d23a44ef (398 units), measured while the test suite ran.
+
+**Agreement on the robustness-pass sessions** (`python -m unitwave.cli.qc_agreement`,
+run 20261002T071946571998Z_qc_agreement):
+
+| | units |
+|---|---|
+| All units (9 sessions) | 2,699 |
+| Pass both rules | 1,947 |
+| Pass IBL's rule only | 706 |
+| Pass spike-time QC only | 0 |
+| Fail both | 46 |
+
+- **Overall:** 74% agree. Per session it ranges from 56% (b182b754) to 89%
+  (872ce8ff); 3a3ea015's 2 units agree.
+- **Nothing passes on spike times only.** The release's good units all carry
+  label 1, so failing IBL's rule here means a region or rate exclusion, which spike
+  times also catch.
+- **Why the 706 units with a passing IBL label fail on spike times:**
+  - **Presence ratio, 560 units** (495 fail on presence alone; their median rate is
+    1.7 Hz). Only 23 fire too rarely to fill 10 s bins (under 0.23 Hz). The rest
+    really are silent for stretches of the task.
+  - **Refractory violations, 211 units.** This was known: our port of IBL's older
+    MIT test agreed with IBL's stored flag on 553 of 674 clusters (2026-09-30,
+    "Phy QC gains IBL's sliding refractory-period test"). IBL's label uses the
+    newer GPL implementation, which passes more units.
+- **The bin width drives presence.** Of the 2,653 units passing IBL's rule:
+
+  | Presence rule (≥ 0.9, over the task) | fail |
+  |---|---|
+  | 10 s bins (signed off) | 560 |
+  | 100 bins per task: Allen's definition, 23–42 s here | 320 |
+  | 60 s bins | 238 |
+
+  The signed-off rule pairs IBL's 10 s bin with Allen's 0.9 threshold. Allen's own
+  0.9 is over 100 bins per session, much wider than 10 s, so the pairing is
+  stricter than either source. It stays as signed off; the table is here for the
+  user to decide.
+
+**Not changed:** IBL's label rule (`configs/qc.yaml`), the Phy rule for folders with
+label files (`configs/qc_phy.yaml`), `preprocess/`, `splits/`, cache keys. No
+dependency was added.
+
 ### 2026-10-01 — Step 3: user-defined tasks (`analysis/tasks.py`, `configs/tasks/`)
 
 **What (the user's step 3):** a task definition file says what a trials table
