@@ -71,3 +71,13 @@ behaviour:
   traces: [hand_speed]
 
 trialstruct: [maze_id, num_targets, num_barriers]
+
+# Mazes to keep: nine mazes are more than the 8 colours a split can show, so a split by
+# maze needs 8 or fewer chosen here (step 8b).
+trial_filters:
+  mazes:
+    label: Mazes
+    kind: select
+    column: maze_id
+    level_format: "maze {v:g}"
+    reason: maze not selected

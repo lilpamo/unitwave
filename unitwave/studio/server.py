@@ -152,6 +152,7 @@ from unitwave.viz.studio_plots import (
     population_figure,
     probe_colours,
     quality_figure,
+    ramp_colours,
     trajectory_figure,
     trial_figure,
     tuning_figure,
@@ -265,10 +266,31 @@ class Studio:
             )
         return self.task.conditions[name].label
 
-    def _colours(self, split: str, levels, theme: str) -> list[str]:
-        """IBL's conditions have their own colours (sides, contrast ramp); another task's
-        levels take the categorical slots in order."""
-        return condition_colours(split if self.task.name == DEFAULT_TASK else "", levels, theme)
+    def _colours(self, split: str, levels, theme: str, *, for_axis: bool = False) -> list[str]:
+        """IBL's conditions have their own colours (sides, contrast ramp). Another task's
+        (step 8b): an ordered condition takes the one-hue ramp; a categorical one, or an
+        angle (a circular comparison), the categorical slots in order. More categories than
+        slots can't be told apart by colour: refused, except on an axis that names each
+        level (for_axis: the tuning curve), where they share one colour."""
+        if self.task.name == DEFAULT_TASK:
+            return condition_colours(split, levels, theme)
+        spec = self.task.conditions.get(split)
+        comparison = self.task.comparisons.get(split)
+        circular = comparison is not None and comparison.kind == "circular"
+        n = len(levels)
+        if spec is not None and spec.type in ("ordinal", "continuous") and not circular:
+            return ramp_colours(n, theme)
+        slots = THEMES[theme]["categorical"]
+        if n <= len(slots):
+            return list(slots[:n])
+        if for_axis:
+            return [THEMES[theme]["series"]] * n
+        label = spec.label if spec is not None else split
+        raise ValueError(
+            f"{label} has {n} levels, more than the {len(slots)} colours that can be told "
+            f"apart, so its trials aren't drawn by colour: read its tuning curve, or keep "
+            f"{len(slots)} levels or fewer with the trial filters"
+        )
 
     def _level_names(self, name: str, levels) -> list[str]:
         """Names of the given levels of a condition, as this session's table has them."""
@@ -1137,7 +1159,7 @@ class Studio:
     def tuning_png(self, q: dict) -> tuple[bytes, dict]:
         d = self.tuning_data(q)
         curve, split = d["curve"], q["split"]
-        colours = self._colours(split, d["levels"], q.get("theme", "light"))
+        colours = self._colours(split, d["levels"], q.get("theme", "light"), for_axis=True)
         png = tuning_figure(
             list(curve.index),
             curve["mean_hz"].to_numpy(),

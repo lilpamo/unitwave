@@ -6,6 +6,48 @@ first.
 
 ---
 
+### 2026-10-03 — Step 8b: population trajectories for any task, and colours by condition type (`studio/server.py`, `viz/studio_plots.ramp_colours`)
+
+**What (the user's step 8, its second part):** trajectories for any task. The analysis
+was already task-neutral (`analysis/trajectories.py`):
+- **Fit and show:** PCA on condition-averaged rates, fit on each condition's 1st, 3rd,
+  … trials and projected on the others.
+- **Learned from the fit half only:** soft normalisation and means.
+- **Names:** components are named pc_1, pc_2, … only (R5).
+- **Reported:** the variance of the shown trials on each component.
+
+Since step 3 it takes the task's conditions, so 8b checks it on other datasets and
+fixes what didn't carry over: colour.
+
+**Colours by condition type (another task than IBL):**
+- **Ordered conditions:** an ordinal or continuous condition (temporal frequency,
+  contrast, a median split) takes the theme's one-hue ramp, faint to strong against
+  the page, never its palest step. Before, its levels took unrelated categorical hues.
+- **Categories and angles:** a categorical condition, or an angle tested as a circle
+  (direction, orientation), takes the categorical slots in order.
+- **More categories than slots** (8; MC_Maze has 9 mazes):
+  - **Not drawn by colour:** the split PSTH and trajectories refuse, saying so and
+    pointing to the tuning curve and the trial filters. Before, colours repeated in
+    the legend.
+  - **The tuning curve still draws,** in one colour, because its axis names each
+    level.
+  - **A filter to narrow them:** MC_Maze's task gains a Mazes trial filter, to keep 8
+    or fewer.
+- **IBL's colours are unchanged:** sides, the contrast ramp, choice and outcome.
+
+**Checked:**
+- **MC_Maze:** split by targets shown, aligned on movement onset; trajectories are
+  cross-validated with pc names only.
+- **Allen drifting gratings:**
+  - split by temporal frequency: on the ramp, fit on 299 presentations and shown on
+    299, with pc_1 27%, pc_2 17% and pc_3 5% of the shown trials' variance;
+  - split by direction: on the categorical slots.
+- **IBL:** its trajectory tests are unchanged.
+- **The browser:** Allen's temporal-frequency split, and MC_Maze's maze refusal with
+  its filter.
+
+**Not changed:** the trajectory analysis and its config; IBL's colours and numbers.
+
 ### 2026-10-03 — Step 8a: decoding for any task (`targets/task.py`, `qc/rules.py`, a task's `decoding` section)
 
 **What (the user's step 8, its first part):** decoding a task's own trial targets on

@@ -209,7 +209,7 @@ The plan, as written:
 - **The proof:** everything works without an atlas, and atlas-only features are
   disabled with the reason.
 
-### Step 8. Decoding, trajectories and region summaries, for any task — decoding built (2026-10-03)
+### Step 8. Decoding, trajectories and region summaries, for any task — decoding and trajectories built (2026-10-03)
 
 **8a, decoding: built** (`docs/DECISIONS.md`, "Step 8a").
 - **What changed:**
@@ -222,6 +222,13 @@ The plan, as written:
 - **Proven on Steinmetz choice:** the gate is not passed against the contrasts. IBL
   is unchanged.
 - **Next:** 8b trajectories, then 8c region summaries.
+
+**8b, trajectories: built (2026-10-03).** The analysis was already task-neutral;
+checked on MC_Maze and Allen, and IBL is unchanged.
+- **Colour by condition type:** another task's ordered conditions take a one-hue ramp,
+  and categories and angles take the categorical slots.
+- **More than 8 categories** aren't drawn by colour; the tuning curve still draws.
+- **MC_Maze** gets a Mazes filter.
 
 The plan, as written:
 

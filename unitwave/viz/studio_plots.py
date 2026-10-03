@@ -151,6 +151,17 @@ class TraceGroup:
     rel: np.ndarray  # (n_spikes,) seconds from the event
 
 
+def ramp_colours(n: int, theme: str) -> list[str]:
+    """n colours on the theme's one-hue ramp, from faint to strong against the page (light
+    to dark on a light page), never its palest step, which nearly vanishes on the page.
+    For an ordered condition of another task than IBL (step 8b)."""
+    steps = THEMES[theme]["sequential"][1:]
+    if n == 1:
+        return [THEMES[theme]["sequential"][-2]]
+    ramp = LinearSegmentedColormap.from_list("ramp", steps)
+    return [to_hex(ramp(x)) for x in np.linspace(0.0, 1.0, n)]
+
+
 def condition_colours(name: str, levels: tuple[float, ...], theme: str) -> list[str]:
     """One colour per level. Sided conditions use the diverging pair: left blue, right
     red, graded by rank for contrast; 0% and the unbiased block get the muted ink. Choice

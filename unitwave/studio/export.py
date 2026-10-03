@@ -141,7 +141,7 @@ def export_view(studio, view: dict, runs_dir: str | os.PathLike) -> Path:
                 curve["mean_hz"].to_numpy(),
                 curve["sem_hz"].to_numpy(),
                 curve["n"].tolist(),
-                studio._colours(view["split"], t["levels"], THEME),
+                studio._colours(view["split"], t["levels"], THEME, for_axis=True),
                 studio.task.conditions[view["split"]].type == "ordinal",
                 THEME,
                 t["caption"],
