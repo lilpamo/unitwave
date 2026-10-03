@@ -213,8 +213,11 @@ function renderTest(t) {
     $('testSummary').textContent = `Not run for ${$('event').selectedOptions[0]?.text || 'this event'}.`;
     return;
   }
-  const on = t.probes.length === 1 ? `probe ${t.probes[0]}` : `probes ${t.probes.join(', ')}`;
-  $('testSummary').textContent = `${t.n_responsive} of ${t.n_tests} units responsive on ${on} (${t.n_up} up, ${t.n_down} down) · ` +
+  $('testSummary').textContent = testText(t);
+}
+const probesText = (t) => (t.probes.length === 1 ? `probe ${t.probes[0]}` : `probes ${t.probes.join(', ')}`);
+function testText(t) {
+  return `${t.n_responsive} of ${t.n_tests} units responsive on ${probesText(t)} (${t.n_up} up, ${t.n_down} down) · ` +
     `${t.n_trials} ${t.movement_free ? 'movement-free ' : ''}trials${t.n_excluded ? `, ${t.n_excluded} without this event excluded` : ''} · ${t.n_shifts.toLocaleString()} shifts each`;
 }
 async function runTest() {
@@ -255,8 +258,10 @@ function renderMovementNotes() {
 function renderLocking(t) {
   if (!state.session.movement.first_movement) { $('lockSummary').textContent = ''; return; }
   if (!t) { $('lockSummary').textContent = 'Not run for these units and trials.'; return; }
-  const on = t.probes.length === 1 ? `probe ${t.probes[0]}` : `probes ${t.probes.join(', ')}`;
-  $('lockSummary').textContent = `${t.n_locked} of ${t.n_tests} units on ${on} movement-locked · ${t.n_trials} trials · ` +
+  $('lockSummary').textContent = lockText(t);
+}
+function lockText(t) {
+  return `${t.n_locked} of ${t.n_tests} units on ${probesText(t)} movement-locked · ${t.n_trials} trials · ` +
     `null: ${t.null}, ${t.n_null.toLocaleString()} draws, seed ${t.seed}`;
 }
 async function runLocking() {
@@ -333,14 +338,15 @@ function renderSelectivity(t) {
     $('selSummary').textContent = pair ? 'Not run for this event and split.' : '';
     return;
   }
-  const on = t.probes.length === 1 ? `probe ${t.probes[0]}` : `probes ${t.probes.join(', ')}`;
+  $('selSummary').textContent = selText(t);
+}
+function selText(t) {
   if (t.kind === 'circular') {
-    $('selSummary').textContent = `${t.n_selective} of ${t.n_tests} units on ${on} selective for ${t.condition.toLowerCase()} ` +
+    return `${t.n_selective} of ${t.n_tests} units on ${probesText(t)} selective for ${t.condition.toLowerCase()} ` +
       `(${t.n_silent} silent in the window: no index, not selective) · ${t.n_trials} trials · ` +
       `null: ${t.null}, ${t.n_null.toLocaleString()} draws, seed ${t.seed} · ${t.window} window`;
-    return;
   }
-  $('selSummary').textContent = `${t.n_selective} of ${t.n_tests} units on ${on} selective ` +
+  return `${t.n_selective} of ${t.n_tests} units on ${probesText(t)} selective ` +
     `(${t.n_higher_b} higher for ${t.b}, ${t.n_higher_a} for ${t.a}) · ${t.n_a} vs ${t.n_b} trials · ` +
     `null: ${t.null}, ${t.n_null.toLocaleString()} draws, seed ${t.seed} · ${t.window} window`;
 }
@@ -976,6 +982,89 @@ const brain = (() => {
   return { load, select, note, theme: () => renderer && applyTheme() };
 })();
 
+// ---------- recipes (step 9) ----------
+// The server sends each recipe in this session's task words, greyed out with the reason
+// where the session can't support it. A step's button asks the server to run the manual
+// view's own analysis, then sets the page to the same event, split and trials, so the
+// panels on the left show the very same result. The page computes nothing.
+const PARTS = [['question', 'Question'], ['why', 'Why this answers it'], ['analysis', 'Analysis'],
+  ['null_and_correction', 'Null and correction'], ['needs', 'Needs'], ['read', 'How to read it']];
+function partHTML(p) {
+  const points = p.points.map((x) => `<li>${x.lead ? `<strong>${esc(x.lead)}</strong> ` : ''}${esc(x.text)}</li>`).join('');
+  return (p.text ? esc(p.text) : '') + (points ? `<ul>${points}</ul>` : '');
+}
+function renderRecipes(recipes) {
+  const first = recipes.find((r) => r.available);  // opened: the first this session supports
+  $('recipeList').innerHTML = recipes.map((r) => {
+    const steps = r.steps.map((s, i) => `<details class="step"${i === 0 && r.available ? ' open' : ''}>
+      <summary>Step ${i + 1}. ${esc(s.title)}</summary>
+      <dl>${PARTS.map(([k, label]) => `<dt>${label}</dt><dd>${partHTML(s[k])}</dd>`).join('')}</dl>
+      <div class="run">${s.available
+    ? `<button class="btn" data-recipe="${esc(r.name)}" data-step="${esc(s.id)}">${s.run.kind === 'split_view' ? 'Show it' : s.run.kind.startsWith('region') || s.run.kind === 'choose_sessions' ? 'How to run it' : 'Run analysis'}</button>`
+    : `<span class="note">${esc(s.reason)}</span>`}</div>
+      <p class="result" id="result-${esc(r.name)}-${esc(s.id)}" aria-live="polite"></p>
+    </details>`).join('');
+    return `<details class="recipe${r.available ? '' : ' off'}"${r === first ? ' open' : ''}>
+      <summary>${r.number}. ${esc(r.title)}</summary>
+      ${r.available ? '' : `<p class="why-not">Not offered for this session: ${esc(r.reason)}</p>`}
+      ${steps}</details>`;
+  }).join('');
+}
+function recipeResult(d) {
+  if (d.kind === 'responsiveness') return testText(d.result);
+  if (d.kind === 'movement_locking') return lockText(d.result);
+  if (d.kind === 'selectivity') return selText(d.result);
+  if (d.kind === 'split_view') return `Shown in the Selected unit card: split by ${$('split').selectedOptions[0]?.text.toLowerCase()}, aligned to ${$('event').selectedOptions[0]?.text.toLowerCase()}.`;
+  if (d.kind === 'choose_sessions') return 'Sessions are chosen on the homepage (an IBL set) or named as NWB files when the summary runs:';
+  const runs = d.runs.length ? `${d.runs.length} finished run${d.runs.length === 1 ? '' : 's'} labelled "${d.label}": read them under Region summaries on the homepage.`
+    : `No finished run labelled "${d.label}" yet.`;
+  return `Run this in a terminal, with at least the sessions a verdict needs, then read it on the homepage. ${runs}`;
+}
+async function runRecipeStep(button) {
+  const out = $(`result-${button.dataset.recipe}-${button.dataset.step}`);
+  button.disabled = true;
+  out.textContent = 'Running…';
+  try {
+    const d = await getJSON('/api/recipe?' + params({ recipe: button.dataset.recipe, step: button.dataset.step }));
+    // The page takes the step's settings, so the left-hand panels show the same result.
+    const q = d.query || {};
+    if (q.event && q.event !== $('event').value) {
+      $('event').value = q.event;
+      resetResponsive();
+      renderMovementNotes();
+    }
+    if ('movement_free' in q) state.movementFree = $('movementFree').checked = q.movement_free === '1';
+    if ('split' in q) state.split = $('split').value = q.split;
+    if (d.kind === 'decoding') {
+      $('decTarget').value = d.target;
+      await runDecoding();
+      out.textContent = 'Started in the Decoding panel on the left; its verdict line and table appear there and in the Population card.';
+      return;
+    }
+    if (q.event || 'split' in q) await loadUnits();
+    out.innerHTML = esc(recipeResult(d)) + (d.command ? `<code>${esc(d.command)}</code>` : '');
+  } catch (e) {
+    out.textContent = e.message.replace(/^Cannot show this: /, '');
+  } finally {
+    button.disabled = false;
+  }
+}
+async function openRecipes() {
+  $('recipes').hidden = false;
+  $('recipesOpen').setAttribute('aria-expanded', 'true');
+  if (!$('recipeList').children.length) {
+    try {
+      renderRecipes((await getJSON('/api/recipes')).recipes);
+    } catch (e) {
+      $('recipeList').textContent = e.message;
+    }
+  }
+}
+function closeRecipes() {
+  $('recipes').hidden = true;
+  $('recipesOpen').setAttribute('aria-expanded', 'false');
+}
+
 // ---------- wiring ----------
 $('theme').addEventListener('click', (e) => { if (e.target.dataset.v) setTheme(e.target.dataset.v); });
 $('level').addEventListener('click', (e) => {
@@ -1071,6 +1160,12 @@ $('unitImg').addEventListener('click', (e) => {
 $('unitTabs').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (b && b.dataset.tab !== state.unitTab) showUnitTab(b.dataset.tab);
+});
+$('recipesOpen').addEventListener('click', () => ($('recipes').hidden ? openRecipes() : closeRecipes()));
+$('recipesClose').addEventListener('click', closeRecipes);
+$('recipeList').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-step]');
+  if (b) runRecipeStep(b);
 });
 $('runConn').addEventListener('click', runConnections);
 $('runDec').addEventListener('click', runDecoding);

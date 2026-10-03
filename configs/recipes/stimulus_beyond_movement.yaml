@@ -1,0 +1,110 @@
+# Recipe 1 (step 9; wording approved by the user 2026-10-03,
+# docs/proposals/recipe_wording.md). Schema and placeholders: unitwave/analysis/recipes.py.
+# {words} come from the task definition, {numbers} from the configs.
+name: stimulus_beyond_movement
+number: 1
+title: Which units respond to the {stimulus} beyond the movement that follows it?
+needs:
+  stimulus: movement
+  movement: true
+steps:
+  - id: respond
+    title: Which units change their rate after the {stimulus}?
+    run: {kind: responsiveness}
+    question: >-
+      Which units fire differently in the {response_after} after the {stimulus} than in
+      the {baseline_before} before it?
+    why: >-
+      A unit that responds to the {stimulus} should change its rate soon after it, on
+      most trials.
+    analysis: >-
+      The responsiveness test at {stimulus_onset}, on the trials the trial filters keep.
+      The statistic is the mean over trials of (rate 0 to {response_after} after − rate
+      {baseline_before} before) (configs/analysis.yaml).
+    null_and_correction: >-
+      The unit's spike train is circularly shifted against the event times, by at least
+      {min_shift}. This keeps the unit's own firing pattern and breaks only its timing
+      relative to the {stimulus}. The test is two-sided, with Benjamini–Hochberg across
+      the units tested (α = {alpha}).
+    needs: >-
+      QC-passing units; trials with a {stimulus_onset} time. Trials without one are
+      excluded and counted.
+    read:
+      text: >-
+        A responsive unit changes its rate (up or down) after the {stimulus}, more than
+        shifted copies of its own train do.
+      points:
+        - lead: "It does not show the {stimulus} caused the change:"
+          text: >-
+            the animal usually starts moving within a few hundred milliseconds, inside
+            the {response_after} window. Steps 2 and 3 separate the two.
+        - lead: "Not responsive is not the same as unaffected:"
+          text: a weak or rare response can be missed, and fewer trials mean less power.
+
+  - id: locked
+    title: Which units follow the movement rather than the {stimulus}?
+    run: {kind: movement_locking}
+    question: Is a unit's rate locked to each trial's own {movement}?
+    why: >-
+      Reaction times vary from trial to trial. A unit driven by the movement fires at the
+      movement's time, wherever it falls after the {stimulus}. Re-pairing trials with
+      other reaction times blurs that unit. A unit driven by the {stimulus} blurs the
+      same either way.
+    analysis: >-
+      The movement-locking test. The statistic is the mean over trials of (rate 0 to
+      {lock_after} after the {movement} − rate {lock_before} before it)
+      (configs/movement.yaml).
+    null_and_correction: >-
+      Reaction times permuted {lock_permutations} times within {rt_strata} strata, so
+      each trial keeps its {stimulus} and gets a reaction time from trials like it (seed
+      {lock_seed}). Two-sided, with Benjamini–Hochberg across the units tested
+      (α = {alpha}).
+    needs: >-
+      Trials with both a {stimulus_onset} and a {movement} time. Trials missing either
+      are excluded and counted.
+    read:
+      text: A locked unit is sharper at the true movement times than at re-paired ones.
+      points:
+        - lead: "It does not show the unit ignores the {stimulus}:"
+          text: a unit can be both locked and stimulus-responsive.
+        - lead: "It can over-call:"
+          text: >-
+            if reaction time tracks the animal's state (how engaged it is, say), a unit
+            following that state can be labelled locked.
+        - lead: "Not locked is not the same as unrelated to movement:"
+          text: only the {movement} is tested.
+
+  - id: movement_free
+    title: Which units still respond when no movement falls in the window?
+    run: {kind: responsiveness, movement_free: true}
+    question: >-
+      On trials where the animal moves only after the {response_after} window ends, does
+      the unit still change its rate after the {stimulus}?
+    why: >-
+      On those trials, no {movement} falls inside the window. A rate change there can't
+      come from that movement.
+    analysis: >-
+      The step 1 test, on the movement-free trials only: those whose {movement} comes
+      more than {response_after} after the {stimulus}. A trial without a movement time
+      isn't known to be movement-free, so it is excluded.
+    null_and_correction: >-
+      As step 1 (shift null, two-sided, Benjamini–Hochberg across the units tested).
+    needs: >-
+      Step 1's trials, with a {movement} time. The panel shows how many trials are left,
+      and why the rest were excluded.
+    read:
+      text: >-
+        A unit responsive on movement-free trials responds before any {movement}.
+      points:
+        - lead: "It does not rule out movement entirely:"
+          text: >-
+            smaller movements than the one detected (whisking, posture, a wheel twitch
+            below threshold), and preparing to move, can still fall in the window.
+        - lead: "These trials are not a random sample:"
+          text: >-
+            late movements are more common in some conditions (on IBL, low contrast) and
+            when the animal is less engaged. A difference from step 1 can come from
+            which trials were kept, not only from the movement.
+        - lead: "Fewer trials, less power:"
+          text: >-
+            a unit responsive in step 1 but not here isn't shown to be movement-driven.

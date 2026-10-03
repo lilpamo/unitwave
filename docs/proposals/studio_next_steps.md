@@ -263,7 +263,7 @@ step, in this order, proven on IBL plus at least one other dataset:
 - **Region summaries:** only for datasets with regions. Sessions are the unit of
   inference, with FDR across regions.
 
-### Step 9. Guided workflow recipes (no AI) — planned
+### Step 9. Guided workflow recipes (no AI) — 9a built (2026-10-03); 9b, the analysis log, next
 
 As specified in S8 below, with three changes:
 - **Each recipe declares the task features it needs** (events, condition types).
@@ -271,6 +271,26 @@ As specified in S8 below, with three changes:
 - **Wording first:** three recipes' wording is drafted for the user's approval
   before the UI is built.
 - **An analysis log** in the project file.
+
+**Wording approved (2026-10-03):** `docs/proposals/recipe_wording.md`.
+
+**Built in two parts, as step 8 was:**
+- **9a, recipes: built (2026-10-03)** (`docs/DECISIONS.md`, "Step 9a").
+  - **The files:** three recipes under `configs/recipes/`, read by
+    `analysis/recipes.py`.
+  - **Wording:** in each task's own words and the configs' numbers; no number is
+    typed into a recipe.
+  - **Offered only where it fits:** a recipe the session can't support is greyed out,
+    with the reason. A step whose analysis is missing (decoding on a Phy folder) is
+    greyed out alone.
+  - **The Recipes panel:** each step's button runs the manual view's own method with
+    the manual view's parameters. The page then takes the same event, split and
+    trials, so the panels on the left show the same result.
+  - **Checked:** the numbers are identical to the manual views' on MC_Maze (recipe 1)
+    and Steinmetz (recipe 2), in tests and in the browser.
+  - **Differences from the approved wording:** four small ones, listed at the end of
+    the wording file.
+- **9b, the analysis log: next.** Designed in DECISIONS.md first.
 
 ### Plan only, don't build yet
 

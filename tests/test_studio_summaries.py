@@ -49,6 +49,7 @@ def test_finished_summary_runs_are_listed_newest_first_and_nothing_else(tmp_path
     assert rows[1] == {
         "run": RUN,
         "label": "responsive to stimulus onset",
+        "task": "ibl",
         "set": "CA1 examples",
         "level": "Beryl",
         "created": "2026-10-01T12:00:00+00:00",

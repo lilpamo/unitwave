@@ -1,0 +1,78 @@
+# Recipe 3 (step 9; wording approved by the user 2026-10-03,
+# docs/proposals/recipe_wording.md). Schema and placeholders: unitwave/analysis/recipes.py.
+# {words} come from the task definition, {numbers} from the configs.
+name: regions_differ
+number: 3
+title: How do brain regions differ in their responses to the {stimulus}?
+needs:
+  stimulus: stim_on
+  regions: true
+steps:
+  - id: sessions
+    title: Choose the sessions.
+    run: {kind: choose_sessions}
+    question: Which sessions will be compared, decided before seeing any region result?
+    why: >-
+      The region test treats each session as one observation. Choosing sessions after
+      seeing results would bias it.
+    analysis: >-
+      An IBL set saved on the homepage, or a list of NWB files with their layout. The run
+      records each session's file hash and the trial filter.
+    null_and_correction: None. Choosing makes no claim.
+    needs: >-
+      Sessions with brain regions. A dataset without them is refused, saying why.
+    read:
+      text: >-
+        A region gets a verdict only if it has units in at least {min_sessions} of the
+        chosen sessions.
+      points:
+        - lead: "It does not show the sessions are representative:"
+          text: probes sample regions unevenly.
+
+  - id: summary
+    title: Label every session's units, then compare regions.
+    run: {kind: region_summary, label: responsive}
+    question: >-
+      Does a region hold more, or fewer, {stimulus}-responsive units than its sessions
+      would predict?
+    why: >-
+      Every unit gets the step 1 label of Recipe 1, on its own session. A region is then
+      compared with the other units recorded alongside it, in each session.
+    analysis:
+      text: >-
+        A region summary, run on the command line, because every session is loaded and
+        tested (minutes per session):
+      points:
+        - >-
+          the responsiveness test at {stimulus_onset}, as in Recipe 1, step 1, with each
+          session's own unit QC;
+        - regions at the {level} level of the Allen atlas.
+    null_and_correction:
+      points:
+        - lead: "Per region:"
+          text: >-
+            its labelled units, summed over sessions, against the exact null in which
+            region labels are permuted within each session. No seed is needed.
+        - lead: "The test:"
+          text: >-
+            two-sided, with Benjamini–Hochberg across the regions with a verdict
+            (α = {summary_alpha}).
+        - lead: "The session is the unit of inference:"
+          text: >-
+            a session with many responsive units can't make a region look enriched just
+            by contributing many units.
+    needs: >-
+      Step 1's sessions. A session that can't be labelled is left out, and the reason is
+      shown.
+    read:
+      text: >-
+        "More" means the region's units are labelled more often than their own sessions'
+        other units. The flatmap shows the excess, and the spread plot shows one dot per
+        session.
+      points:
+        - It compares how often units are labelled, not how strongly they respond.
+        - It does not show the region causes anything, nor why its units respond.
+        - lead: "Units are sampled where the probes went:"
+          text: a region's units may come from one part of it.
+        - lead: "A refused region is not a region without a difference:"
+          text: it has too few sessions to test.

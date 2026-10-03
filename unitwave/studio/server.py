@@ -80,7 +80,9 @@ from unitwave.analysis.psth import (
     scale_rows_for_display,
     selection_average,
 )
+from unitwave.analysis.recipes import list_recipes, resolve, window_words
 from unitwave.analysis.responsiveness import load_response_config, responsiveness
+from unitwave.analysis.summary import LabelSpec
 from unitwave.analysis.tasks import DEFAULT_TASK, TaskDefinition, list_tasks, load_task
 from unitwave.analysis.trajectories import load_trajectory_config, trajectories
 from unitwave.analysis.trial_view import (
@@ -812,6 +814,99 @@ class Studio:
         if "started" in status:
             status["elapsed_s"] = round(status.get("finished", time.time()) - status["started"], 1)
         return status
+
+    # ---------- recipes (step 9) ----------
+    def _decoding_words(self, condition: str) -> tuple[str, str] | str:
+        """(target id, its window in words) for a decoding target on `condition` that this
+        session can run; else why not."""
+        if self._bwm():
+            if condition not in self.decode_cfg.targets:
+                return f"IBL decoding has no target on {condition}."
+            w = load_target_config().windows[condition]
+            anchor = {"stimOn_times": "stimulus onset", "firstMovement_times": "first movement"}
+            return condition, window_words(w.start_s, w.stop_s, anchor[w.anchor])
+        info = self._decoding_info()
+        if not info["available"]:
+            return info["why"]
+        d = self.task.decoding
+        for name, t in (d.targets if d is not None else {}).items():
+            if t.condition == condition and f"task:{name}" in {x["id"] for x in info["targets"]}:
+                label = self.task.events[t.event].label.lower()
+                return f"task:{name}", window_words(t.start_s, t.stop_s, label)
+        return f"The {self.task.label} definition declares no decoding target on {condition}."
+
+    def _recipes(self) -> list[dict]:
+        regions = None
+        if not self.has_regions:
+            regions = self.session.available.missing.get("units.acronym", "not in this session")
+        conditions = {r.needs["comparison"] for r in list_recipes() if "comparison" in r.needs}
+        decoding = {c: self._decoding_words(c) for c in conditions}
+        return [resolve(r, self.task, regions=regions, decoding=decoding) for r in list_recipes()]
+
+    def recipes_json(self, q: dict) -> dict:
+        """The recipes, in this session's task words, each available or greyed out with why."""
+        return {"recipes": self._recipes()}
+
+    def recipe_run(self, q: dict) -> dict:
+        """Run one recipe step: the manual view's own method with the manual view's
+        parameters (the page's unit set and trial filter, the step's event, split or
+        movement-free trials). Decoding returns its target for the page's decoding pane
+        to start; a split view returns what the toolbar should show; a region summary
+        returns its command line, which is run outside the page."""
+        recipe = next((r for r in self._recipes() if r["name"] == q.get("recipe")), None)
+        if recipe is None:
+            raise ValueError(f"no recipe {q.get('recipe')!r}")
+        step = next((s for s in recipe["steps"] if s["id"] == q.get("step")), None)
+        if step is None:
+            raise ValueError(f"no step {q.get('step')!r} in recipe {recipe['name']}")
+        if not step["available"]:
+            raise ValueError(step["reason"])
+        run, page = (
+            step["run"],
+            {k: q.get(k, d) for k, d in (("all", "0"), ("probe", ""), ("tf", "{}"))},
+        )
+        kind = run["kind"]
+        if kind == "responsiveness":
+            query = {
+                **page,
+                "event": run["event"],
+                "movement_free": "1" if run["movement_free"] else "0",
+            }
+            return {"kind": kind, "query": query, "result": self.test_json(query)}
+        if kind == "movement_locking":
+            return {"kind": kind, "query": page, "result": self.locking_json(page)}
+        if kind == "selectivity":
+            query = {**page, "event": run["event"], "split": run["split"]}
+            return {"kind": kind, "query": query, "result": self.selectivity_json(query)}
+        if kind == "split_view":
+            return {"kind": kind, "query": {**page, "event": run["event"], "split": run["split"]}}
+        if kind == "decoding":
+            return {"kind": kind, "query": page, "target": run["target"]}
+        label = LabelSpec("responsive", run["event"], task=self.task.name)
+        if kind == "choose_sessions":
+            return {"kind": kind, "command": self._summary_command(label, page)}
+        return {
+            "kind": kind,
+            "command": self._summary_command(label, page),
+            "label": label.describe(),
+            "runs": [
+                r
+                for r in list_summaries(RUNS)
+                if r["label"] == label.describe() and r["task"] == self.task.name
+            ],
+        }
+
+    def _summary_command(self, label: LabelSpec, page: dict) -> str:
+        """The region-summary command for sessions like this one (cli.summarise)."""
+        tail = f"--label {label.kind} --event {label.event}"
+        if self.source is not None and self.source.kind == "nwb":
+            tf = json.dumps(TrialFilter.from_dict(json.loads(page["tf"]), self.task).to_dict())
+            return (
+                f'python -m unitwave.cli.summarise --nwb "{self.source.file}" OTHER.nwb … '
+                f"--layout {self.source.layout} --name NAME --trial-filter '{tf}' {tail}"
+            )
+        sets = load_data_config().data_root / "sets"
+        return f'python -m unitwave.cli.summarise "{sets}/NAME.unitwave-set.json" {tail}'
 
     def _pairs_key(self, q: dict) -> tuple:
         """A connections result belongs to exactly the units shown when it ran."""
@@ -1849,6 +1944,8 @@ _SESSION_ROUTES = {
     "/api/pair": ("application/json", "pair_json"),
     "/api/pair.png": ("image/png", "pair_png"),
     "/api/trajectories": ("application/json", "trajectory_json"),
+    "/api/recipes": ("application/json", "recipes_json"),
+    "/api/recipe": ("application/json", "recipe_run"),
     "/api/trajectories.png": ("image/png", "trajectory_png"),
     "/api/quality.png": ("image/png", "quality_png"),
     "/api/tuning.png": ("image/png", "tuning_png"),

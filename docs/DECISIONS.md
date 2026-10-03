@@ -6,6 +6,73 @@ first.
 
 ---
 
+### 2026-10-03 — Step 9a: guided recipes (`analysis/recipes.py`, `configs/recipes/`, the Recipes panel)
+
+**What (the user's step 9, its first part):** three recipes, each a question answered
+by a sequence of Studio's own analyses. Their wording was approved by the user before
+anything was built (`docs/proposals/recipe_wording.md`):
+1. Which units respond to the stimulus beyond the movement that follows it?
+2. Does activity carry choice information beyond the stimulus?
+3. How do brain regions differ in their responses to the stimulus?
+
+**A recipe is one YAML file** whose text fields are plain prose: a part is text, or
+text with points, and a point may have a bold lead.
+- **What it holds:** its question, its needs, and its steps.
+- **Each step has the six approved parts:** question, why, analysis,
+  null_and_correction, needs, read. The YAML key is `null_and_correction`, because YAML
+  reads a bare `null` key as nothing.
+- **Malformed files are refused:** unknown keys, missing parts, unknown placeholders or
+  analyses, repeated step ids, an analysis whose needs the recipe doesn't declare.
+
+**A recipe declares what it needs, and is offered only where the session has it:**
+- **The needs:**
+  - `stimulus`: `movement` (the task's movement section names it) or an event name;
+  - `movement`: movement events;
+  - `comparison`: a two-level comparison whose null permutes within strata;
+  - `regions`: Allen atlas regions.
+  - **A step may need a decoding target** on the comparison's condition.
+- **Where each is offered:**
+  - **Recipe 1:** IBL and MC_Maze. Not Steinmetz, which has no movement onset, nor
+    Allen.
+  - **Recipe 2:** IBL and Steinmetz. On an IBL Phy folder, step 3 is greyed out alone,
+    with decoding's own reason.
+  - **Recipe 3:** IBL, Steinmetz and Allen. Not MC_Maze, which has no atlas regions.
+- **When not offered:** the recipe is still listed and readable, greyed out, with the
+  reason in the task's words.
+
+**Words come from the task, numbers from the configs:**
+- **Task words:** placeholders take event and condition labels, strata names and level
+  names (MC_Maze reads "go cue", "movement onset", "maze").
+- **Numbers:** windows, permutation counts, seeds, α, splits, minimum trials and
+  minimum sessions are read from configs/analysis.yaml, movement.yaml,
+  selectivity.yaml, studio_decoding.yaml, nulls.yaml and summary.yaml. None is typed
+  into a recipe.
+- **A guard:** the wording says "the 0.3 s after" and "the 0.2 s before". If a config
+  window stops touching the event, the recipes refuse rather than mislead.
+
+**A step runs the manual view's own analysis (`Studio.recipe_run`):**
+- **The same method, the same parameters:** test_json, locking_json or
+  selectivity_json, with the page's units and trial filter plus the step's event,
+  split or movement-free trials.
+- **The page follows:** it takes the same settings, so the panels on the left show the
+  same cached result, and the panel's sentence is the rail's.
+- **The other kinds:**
+  - **Decoding:** the step starts the Decoding panel's own run.
+  - **The split view:** sets the toolbar.
+  - **Region-summary steps:** give the command line for sessions like this one, and
+    count the finished runs with the same label and task.
+- **Summary listings now carry their task** (`studio/summaries.py`; older runs are
+  IBL's), so IBL's runs aren't counted for Steinmetz.
+- **Checked against the manual views:** identical numbers and stored tables, on
+  MC_Maze (recipe 1, all three steps) and Steinmetz Richards 2017-10-31 (recipe 2,
+  selectivity). The browser showed the same: 11 of 30 MC_Maze units responsive on 69
+  movement-free trials, in the panel and in the rail.
+
+**Differences from the approved wording:** four small ones, listed at the end of
+`docs/proposals/recipe_wording.md`.
+
+**Next, 9b:** the analysis log, designed here before it is built.
+
 ### 2026-10-03 — Step 8c: region summaries for any task with regions (`analysis/summary.py`, `cli/summarise.py`)
 
 **What (the user's step 8, its last part):** S5's region summaries for any dataset with

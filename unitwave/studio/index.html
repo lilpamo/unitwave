@@ -18,6 +18,7 @@
   <div class="brand"><img src="/static/brand/unitwave-app-icon-flat.svg" alt="">UnitWave <span>Studio</span></div>
   <div class="source" id="source">loading…</div>
   <div class="spacer"></div>
+  <button class="btn" id="recipesOpen" aria-expanded="false" aria-controls="recipes" title="Guided analyses: one question, step by step">Recipes</button>
   <div class="project">
     <span class="note" id="projectStatus"></span>
     <button class="btn" id="save" title="Save the data source, file hashes and these settings (no results)">Save project</button>
@@ -28,6 +29,14 @@
   </div>
 </header>
 <div class="banner" id="warnings" role="alert" hidden></div>
+
+<!-- Recipes (step 9): wording and steps come from configs/recipes/ through the server;
+     each step runs the manual view's own analysis. -->
+<aside class="drawer" id="recipes" hidden aria-label="Recipes">
+  <header><h3>Recipes</h3><button class="btn" id="recipesClose" aria-label="Close recipes">Close</button></header>
+  <p class="note">Each step runs the same analysis as the panel on the left, on the units and trials shown. Every result here is exploratory.</p>
+  <div id="recipeList"></div>
+</aside>
 
 <div class="shell">
   <aside class="rail">

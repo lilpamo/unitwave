@@ -184,3 +184,22 @@ td.resp { text-align: center; }
 .report ul { margin: 6px 0 0; padding-left: 16px; font-size: 11.5px; color: var(--ink2); }
 .report li { margin: 2px 0; overflow-wrap: anywhere; }
 .report li.gone { color: var(--muted); }
+
+/* Recipes drawer (step 9): over the page's right side, below the top bar. */
+.drawer { position: fixed; top: 49px; right: 0; bottom: 0; width: min(520px, 100vw); z-index: 4; overflow: auto;
+  background: var(--surface); border-left: 1px solid var(--line); box-shadow: -8px 0 24px var(--ring); padding: 16px; }
+.drawer > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.recipe { border-top: 1px solid var(--line); padding: 10px 0; }
+.recipe > summary { cursor: pointer; font-weight: 600; }
+.recipe.off > summary { color: var(--muted); }
+.recipe .why-not { color: var(--ink2); margin: 6px 0 0; }
+.step { margin: 10px 0 0 4px; border-left: 2px solid var(--line); padding-left: 10px; }
+.step > summary { cursor: pointer; font-weight: 600; }
+.step dl { margin: 6px 0; }
+.step dt { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-top: 8px; }
+.step dd { margin: 2px 0 0; color: var(--ink); }
+.step dd ul { margin: 4px 0 0; padding-left: 18px; }
+.step .run { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.step .result { color: var(--ink2); font-size: 12px; margin: 6px 0 0; white-space: pre-wrap; }
+.step code { display: block; background: var(--plane); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px;
+  font-size: 11px; overflow-wrap: anywhere; white-space: pre-wrap; margin-top: 6px; }
