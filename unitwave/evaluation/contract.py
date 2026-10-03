@@ -452,7 +452,10 @@ def evaluate(
     if not pseudo and n_pseudo:
         raise ValueError("this provider doesn't generate pseudo-sessions")
 
-    assert_split_valid(task.split, context_bins=task.context_bins)
+    # A provider may say what its split is checked against (a task's own target: its
+    # one-session catalogue and preprocessing); otherwise the release defaults.
+    expected = dict(getattr(task, "split_expectations", {}) or {})
+    assert_split_valid(task.split, context_bins=task.context_bins, **expected)
     ceiling_is_model = task.split.kind in WITHIN_KINDS
     if ceiling_is_model:
         ceiling = None

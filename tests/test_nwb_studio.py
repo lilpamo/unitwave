@@ -42,7 +42,9 @@ def test_an_nwb_file_opens_with_its_layouts_rule_and_report(tmp_path):
     assert rows["ProbeA_0"]["label"] == "good" and rows["ProbeA_0"]["qc_passed"] is True
     assert rows["ProbeA_1"]["label"] == "MUA"
     assert rows["ProbeA_1"]["qc_reason"] == "phy_annotations 1 (MUA) < 2"
-    assert s["decoding"]["available"] is False and "an NWB file lacks" in s["decoding"]["why"]
+    # Step 8a: Steinmetz's task declares a choice target, but this hand-built file's
+    # trials lack its columns, so it isn't offered, and the page says which are missing.
+    assert s["decoding"]["available"] is False and "response_time" in s["decoding"]["why"]
     q = studio.quality_json({"unit": "ProbeA_0"})
     assert q["ibl_missing"].startswith("only for IBL sessions")
     assert q["waveform_missing"] == "waveforms aren't read from NWB files"

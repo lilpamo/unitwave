@@ -19,8 +19,9 @@ import numpy as np
 import yaml
 
 from unitwave.data.session import Session
+from unitwave.qc.rules import apply_qc
 from unitwave.qc.units import DEFAULT_CONFIG as DEFAULT_QC_CONFIG
-from unitwave.qc.units import UnitQC, apply_unit_qc, load_qc_config
+from unitwave.qc.units import UnitQC, load_qc_config
 
 # 1: first version. 2: unit QC's firing-rate floor applies to the task-period rate.
 PREPROC_VERSION = 2
@@ -39,6 +40,10 @@ def _check_bin_ms(bin_ms: int) -> int:
 
 @dataclass(frozen=True)
 class PreprocConfig:
+    """bin_ms, and qc: the unit QC rule binning keeps units by. IBL's UnitQC
+    (configs/qc.yaml) by default; a Phy, spike-time or NWB rule for other sources (step
+    8a). Every rule has a hash, so the fingerprint follows the rule used."""
+
     bin_ms: int
     qc: UnitQC
 
@@ -105,8 +110,9 @@ def bin_spikes(session: Session, bin_ms: int) -> BinnedSpikes:
 
 
 def preprocess_session(session: Session, config: PreprocConfig) -> BinnedSpikes:
-    """Unit QC, then binning; the result carries the config's fingerprint."""
-    binned = bin_spikes(apply_unit_qc(session, config.qc), config.bin_ms)
+    """Unit QC (the session's own rule: config.qc; IBL's by default), then binning; the
+    result carries the config's fingerprint, which hashes that rule."""
+    binned = bin_spikes(apply_qc(session, config.qc), config.bin_ms)
     return BinnedSpikes(
         binned.eid,
         binned.unit_ids,

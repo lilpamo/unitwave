@@ -209,7 +209,21 @@ The plan, as written:
 - **The proof:** everything works without an atlas, and atlas-only features are
   disabled with the reason.
 
-### Step 8. Decoding, trajectories and region summaries, for any task — planned
+### Step 8. Decoding, trajectories and region summaries, for any task — decoding built (2026-10-03)
+
+**8a, decoding: built** (`docs/DECISIONS.md`, "Step 8a").
+- **What changed:**
+  - a task's `decoding` section declares its targets and the shuffle null's minimum
+    shift;
+  - `preprocess_session` applies the session's own unit QC (IBL's path and
+    fingerprint unchanged);
+  - sessions outside the release use a one-session catalogue, with no change to
+    `splits/`.
+- **Proven on Steinmetz choice:** the gate is not passed against the contrasts. IBL
+  is unchanged.
+- **Next:** 8b trajectories, then 8c region summaries.
+
+The plan, as written:
 
 The earlier specs, written against task definitions from the start. Each is its own
 step, in this order, proven on IBL plus at least one other dataset:

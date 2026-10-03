@@ -55,6 +55,7 @@ _OPTIONAL = {
     "behaviour",
     "trialstruct",
     "trial_filters",
+    "decoding",
 }
 
 
@@ -231,6 +232,32 @@ class FilterSpec:
 
 
 @dataclass(frozen=True)
+class DecodingTarget:
+    """A two-level trial target: the condition's levels (b is label 1), decoded from the
+    window [start_s, stop_s] around an event, on trials passing the named filters.
+    `after`: trialstruct columns only known after the window, which the no-spikes
+    baseline may see for earlier trials but not the current one."""
+
+    label: str
+    condition: str
+    levels: tuple[float, float]
+    event: str
+    start_s: float
+    stop_s: float
+    trial_filters: tuple[str, ...]
+    after: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Decoding:
+    """min_shift_trials: the shuffle null's minimum shift for this task's trial targets
+    (longer than its labels' runs); targets: name -> DecodingTarget."""
+
+    min_shift_trials: int
+    targets: dict
+
+
+@dataclass(frozen=True)
 class TaskDefinition:
     name: str
     label: str
@@ -245,6 +272,7 @@ class TaskDefinition:
     traces: tuple[str, ...]
     trialstruct: tuple[str, ...]
     trial_filters: dict
+    decoding: "Decoding | None" = None
     raw: dict = field(repr=False, compare=False, default_factory=dict)
 
     @property
@@ -496,8 +524,58 @@ def task_from_dict(raw: dict) -> TaskDefinition:
         traces=tuple(behaviour.get("traces") or ()),
         trialstruct=tuple(raw.get("trialstruct") or ()),
         trial_filters=filters,
+        decoding=_decoding(raw.get("decoding"), conditions, events, filters, raw),
         raw=raw,
     )
+
+
+def _decoding(raw, conditions: dict, events: dict, filters: dict, task_raw: dict):
+    """The task's decoding section (step 8a), validated; None when it has none."""
+    if raw is None:
+        return None
+    _need("decoding", raw, {"min_shift_trials", "targets"})
+    shift = raw["min_shift_trials"]
+    if isinstance(shift, bool) or not isinstance(shift, int) or shift < 1:
+        raise ValueError("decoding: min_shift_trials must be a positive whole number")
+    trialstruct = set(task_raw.get("trialstruct") or ())
+    targets = {}
+    for name, t in (raw["targets"] or {}).items():
+        where = f"decoding target {name}"
+        _need(where, t, {"label", "condition", "levels", "window"}, {"trial_filters", "after"})
+        if t["condition"] not in conditions:
+            raise ValueError(f"{where}: no condition {t['condition']!r}")
+        if len(t["levels"]) != 2:
+            raise ValueError(f"{where}: needs two levels, got {len(t['levels'])}")
+        w = t["window"]
+        _need(f"{where} window", w, {"event", "start_s", "stop_s"})
+        if w["event"] not in events:
+            raise ValueError(f"{where}: no event {w['event']!r}")
+        if not float(w["start_s"]) < float(w["stop_s"]):
+            raise ValueError(f"{where}: the window's start comes after its stop")
+        after = tuple(str(c) for c in t.get("after") or ())
+        stray = [c for c in after if c not in trialstruct]
+        if stray:
+            raise ValueError(f"{where}: after names {stray}, not in trialstruct")
+        names = tuple(str(f) for f in t.get("trial_filters") or ())
+        for f in names:
+            if f not in filters:
+                raise ValueError(f"{where}: no trial filter {f!r}")
+            if filters[f].kind == "select":
+                raise ValueError(
+                    f"{where}: trial filter {f!r} chooses levels; name a flag or exclusion"
+                )
+        a, b = (float(v) for v in t["levels"])
+        targets[str(name)] = DecodingTarget(
+            label=str(t["label"]),
+            condition=str(t["condition"]),
+            levels=(a, b),
+            event=str(w["event"]),
+            start_s=float(w["start_s"]),
+            stop_s=float(w["stop_s"]),
+            trial_filters=names,
+            after=after,
+        )
+    return Decoding(min_shift_trials=shift, targets=targets)
 
 
 def list_tasks() -> list[dict]:

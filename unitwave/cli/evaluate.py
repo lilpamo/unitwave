@@ -171,8 +171,11 @@ def evaluate_target(
     unit_ids=None,
     rrr: bool = True,
     progress=None,
+    task=None,
+    preproc=None,
 ) -> tuple[ContractResult, SplitData]:
-    """Run the contract for one target; unit_ids, rrr and progress are Studio's."""
+    """Run the contract for one target; unit_ids, rrr and progress are Studio's, and
+    task and preproc (with the session's own QC rule) are for a task's own targets."""
     provider = SplitData(
         lobo_split if target in leave_one_block_out else split,
         target,
@@ -180,6 +183,8 @@ def evaluate_target(
         train_stride=train_stride.get(target, 1) if target in PER_BIN else 1,
         load=load,
         unit_ids=unit_ids,
+        task=task,
+        preproc=preproc,
     )
     rows = decoders(target, provider, baselines)
     not_run = None

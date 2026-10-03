@@ -95,3 +95,20 @@ trial_filters:
     column: feedback_type
     reason: outcome not selected
     level_names: {-1: error, 1: reward}
+
+# Decoding (step 8a; docs/DECISIONS.md, "Step 8a"). The shuffle null rotates labels by at
+# least min_shift_trials: longer than this task's longest run of repeated trials (a
+# trial is repeated after an error; Richards 2017-10-31 shows one up to 9 times in a row).
+decoding:
+  min_shift_trials: 20
+  targets:
+    # Left vs right choice in the 100 ms before the response registers (the wheel
+    # reaching threshold), engaged trials only. Feedback follows the response, so the
+    # no-spikes baseline sees the current trial's contrasts but not its feedback.
+    choice:
+      label: Choice (right vs left)
+      condition: choice
+      levels: [-1, 1]
+      window: {event: response, start_s: -0.1, stop_s: 0.0}
+      trial_filters: [included]
+      after: [feedback_type]

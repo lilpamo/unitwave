@@ -582,7 +582,7 @@ function renderDecodingIntro(d) {
   if (!d.available) $('decCaption').textContent = `Not available: ${d.why}`;
   $('decWhat').textContent = !d.available ? d.why
     : `Logistic regression on the shown units that pass QC, this session only. The first ${d.train_fraction * 100}% ` +
-      `of trials train and the rest test, after a ${d.gap_s} s gap (${d.leave_one_block_out.join(', ')}: leave-one-block-out). ` +
+      `of trials train and the rest test, after a ${d.gap_s} s gap${d.leave_one_block_out.length ? ` (${d.leave_one_block_out.join(', ')}: leave-one-block-out)` : ''}. ` +
       `Trials follow the variable's own definition, not the trial filters above; "Responsive only" can't be used. ` +
       `Every row of the evaluation contract, ` +
       `with verdicts tested in this session: ${d.n_shifts} shifted-target refits, a ${d.n_bootstrap}-resample bootstrap over ` +

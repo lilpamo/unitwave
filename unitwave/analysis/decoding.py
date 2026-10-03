@@ -1,10 +1,17 @@
-"""Decoding in Studio (S3): one IBL session, the shown units, the evaluation contract.
+"""Decoding in Studio (S3; any task since step 8a): one session, the shown units, the
+evaluation contract.
 
 The same path as the CLI (cli.evaluate: build_splits, evaluate_target, write_target),
 so Studio's table is the CLI's for the same session, units, split and seed:
 - **Split (R1, R2):** within-session, early trials train and late trials test with a
-  gap; block uses leave-one-block-out. Both come from the split registry, which needs
-  the BWM manifest, so Phy folders can't be decoded yet.
+  gap; block uses leave-one-block-out. Both come from the split registry. A BWM
+  session is registered with the release manifest; another session with a one-session
+  catalogue (its eid, subject and lab unknown), which within-session splits need no
+  more than that.
+- **Targets:** IBL's (choice, stimulus side, block, movement state), or a task's own
+  ("task:<name>", targets/task.py): its decoding section names the condition, levels,
+  window, trial filters and the shuffle null's minimum shift. Their no-spikes baseline
+  uses the task's trialstruct variables.
 - **Normalisation (R3):** fit on the training data only, stored with the run.
 - **Rows:** every contract row that applies to one session. baseline_rrr is
   multi-session by design and not run; ceiling_within is the model itself, since
@@ -12,8 +19,9 @@ so Studio's table is the CLI's for the same session, units, split and seed:
   decoder, as no deep model is run.
 - **Verdicts:** within-session tests with BH (evaluation.single_session), because the
   contract's across-session test needs at least 5 sessions.
-- **Units:** decoding uses the shown units that pass unit QC (configs/qc.yaml, the
-  same as the page's); shown units failing QC are left out and counted.
+- **Units:** decoding uses the shown units that pass the session's own unit QC (IBL's
+  configs/qc.yaml, or the Phy, spike-time or NWB rule: the page's); shown units
+  failing QC are left out and counted.
 - **Run log:** written to runs/<run_id>/ with the section 7 manifest: git SHA, seed,
   config hashes, preprocessing and target fingerprints, split hash, units.
 """
@@ -29,6 +37,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import yaml
 
 from unitwave.cli.evaluate import (
@@ -46,9 +55,10 @@ from unitwave.evaluation.contract import _FAILURE, GATE, ROWS, ContractResult
 from unitwave.evaluation.data import KINDS, SplitData
 from unitwave.evaluation.single_session import SessionTest, session_tests
 from unitwave.models.baselines.features import load_baseline_config
-from unitwave.preprocess.binning import PREPROC_VERSION, load_preproc_config
+from unitwave.preprocess.binning import PREPROC_VERSION, PreprocConfig, load_preproc_config
 from unitwave.splits.registry import save_split
 from unitwave.targets.config import load_target_config
+from unitwave.targets.task import PREFIX as TASK_PREFIX
 
 DEFAULT_CONFIG = REPO / "configs" / "studio_decoding.yaml"
 CONFIG_FILES = ("qc", "preprocess", "targets", "nulls", "evaluation", "baselines")
@@ -199,6 +209,14 @@ class DecodingRun:
         return _jsonable(out)
 
 
+def one_session_catalog(eid: str) -> Manifest:
+    """A catalogue of one session that isn't in the BWM release, for the split registry:
+    within-session splits read each session's subject and lab, unknown here."""
+    sessions = pd.DataFrame({"eid": [eid], "subject": ["unknown"], "lab": ["unknown"]})
+    provenance = {"catalog": "one session, not a release manifest", "eid": eid}
+    return Manifest(sessions=sessions, insertions=pd.DataFrame(), provenance=provenance)
+
+
 def decode(
     eid: str,
     target: str,
@@ -209,23 +227,46 @@ def decode(
     load: Callable | None = None,
     runs_dir: Path = REPO / "runs",
     progress: Callable[[str, int, int], None] | None = None,
+    session=None,
+    qc=None,
+    task=None,
 ) -> DecodingRun:
-    """Decode target from one BWM session's units (unit_ids: the shown units, or None
-    for every QC-passing unit). progress(stage, done, total) is told as fits finish."""
+    """Decode target from one session's units (unit_ids: the shown units, or None for
+    every QC-passing unit). progress(stage, done, total) is told as fits finish.
+
+    IBL's targets need a BWM session. A task's own target ("task:<name>") needs the
+    open session, its unit QC rule and its task definition."""
     cfg = cfg or load_decoding_config()
-    if target not in cfg.targets:
-        raise ValueError(f"{target} is not a Studio decoding target: one of {list(cfg.targets)}")
     start = time.time()
-    data = load_data_config()
-    manifest = manifest or build_manifest(data.bwm_ephys_root, data.bwm_behavior_root)
-    load = load or (lambda e: load_session(e, "bwm"))
-    if eid not in set(manifest.sessions["eid"]):
-        raise ValueError("decoding needs a session from the Brain Wide Map release")
     preproc, targets_cfg, baselines = (
         load_preproc_config(),
         load_target_config(),
         load_baseline_config(),
     )
+    if target.startswith(TASK_PREFIX):
+        name = target.removeprefix(TASK_PREFIX)
+        if session is None or qc is None or task is None:
+            raise ValueError(f"{target}: decoding a task's target needs the session, QC and task")
+        if task.decoding is None or name not in task.decoding.targets:
+            raise ValueError(f"the {task.label} definition declares no decoding target {name!r}")
+        manifest = one_session_catalog(eid)
+
+        def load(e, opened=session):  # the one session, already open
+            return opened
+
+        preproc = PreprocConfig(bin_ms=preproc.bin_ms, qc=qc)  # the session's own rule
+        targets_fingerprint = task.fingerprint
+    else:
+        if target not in cfg.targets:
+            raise ValueError(
+                f"{target} is not a Studio decoding target: one of {list(cfg.targets)}"
+            )
+        data = load_data_config()
+        manifest = manifest or build_manifest(data.bwm_ephys_root, data.bwm_behavior_root)
+        load = load or (lambda e: load_session(e, "bwm"))
+        if eid not in set(manifest.sessions["eid"]):
+            raise ValueError("decoding needs a session from the Brain Wide Map release")
+        targets_fingerprint = targets_cfg.fingerprint()
     lobo = tuple(t for t in cfg.leave_one_block_out if t == target)
     split, lobo_split = build_splits(
         manifest,
@@ -235,7 +276,9 @@ def decode(
         gap_s=cfg.gap_s,
         leave_one_block_out=lobo,
     )
-    run_id = f"{datetime.now(UTC):%Y%m%dT%H%M%S%fZ}_studio_decode_{target}_{eid[:8]}"
+    tag = Path(eid.removeprefix("nwb:").removeprefix("phy:")).stem[:16] if ":" in eid else eid[:8]
+    slug = target.removeprefix(TASK_PREFIX)
+    run_id = f"{datetime.now(UTC):%Y%m%dT%H%M%S%fZ}_studio_decode_{slug}_{tag}"
     out = Path(runs_dir) / run_id
     out.mkdir(parents=True)
     save_split(split, out / "split.json")
@@ -258,7 +301,8 @@ def decode(
         "studio_config": vars(cfg),
         "preproc_version": PREPROC_VERSION,
         "preproc_fingerprint": preproc.fingerprint(),
-        "targets_fingerprint": targets_cfg.fingerprint(),
+        "targets_fingerprint": targets_fingerprint,
+        "task": None if task is None else {"name": task.name, "fingerprint": task.fingerprint},
         "split_hash": used_split.hash,
         "manifest_provenance": manifest.provenance,
         "sessions": [eid],
@@ -286,6 +330,8 @@ def decode(
         unit_ids=None if unit_ids is None else {eid: list(unit_ids)},
         rrr=False,
         progress=None if progress is None else (lambda d, t: progress("fitting", d, t)),
+        task=task if target.startswith(TASK_PREFIX) else None,
+        preproc=preproc,
     )
     if progress is not None:
         progress("bootstrap", 0, 1)

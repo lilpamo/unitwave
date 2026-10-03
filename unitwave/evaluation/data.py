@@ -59,10 +59,11 @@ from unitwave.preprocess.binning import (
 )
 from unitwave.preprocess.normalize import fit_normalizer
 from unitwave.preprocess.windows import window_plan
-from unitwave.qc.units import apply_unit_qc
+from unitwave.qc.rules import apply_qc
 from unitwave.splits.guards import assert_split_valid
 from unitwave.splits.registry import Split, bin_range
 from unitwave.targets import bins as bin_targets
+from unitwave.targets import task as task_targets
 from unitwave.targets import trials as trial_targets
 from unitwave.targets.config import TargetConfig, load_target_config
 
@@ -108,12 +109,23 @@ class SplitData:
         targets: TargetConfig | None = None,
         nulls: NullConfig | None = None,
         unit_ids: Mapping[str, Collection[str]] | None = None,
+        task=None,
     ):
-        if target not in KINDS:
+        # A task's own trial target ("task:<name>", step 8a): its definition says what it is.
+        self.task = task
+        self.task_target = target.startswith(task_targets.PREFIX)
+        if self.task_target:
+            name = task_targets.target_name(target)
+            if task is None or task.decoding is None or name not in task.decoding.targets:
+                raise ValueError(f"{target}: the task definition declares no such target")
+            kind = "classification"
+        elif target not in KINDS:
             raise ValueError(f"unknown target {target!r}; one of {sorted(KINDS)}")
+        else:
+            kind = KINDS[target]
         if isinstance(train_stride, bool) or not isinstance(train_stride, int) or train_stride < 1:
             raise ValueError(f"train_stride must be a positive integer, got {train_stride!r}")
-        self.split, self.target, self.kind = split, target, KINDS[target]
+        self.split, self.target, self.kind = split, target, kind
         self.train_stride = train_stride
         self.preproc = preproc or load_preproc_config()
         self.targets = targets or load_target_config()
@@ -122,11 +134,22 @@ class SplitData:
         self.lobo = split.kind == "leave_one_block_out"
         if self.lobo and target in PER_BIN:
             raise ValueError("leave_one_block_out splits are for trial targets only")
+        # A task's target is checked against the preprocessing it actually uses (the
+        # session's own QC) and, for a one-session catalogue (analysis.decoding), against
+        # that catalogue: there is no release manifest for it to be out of date with.
+        expected = {}
+        if self.task_target:
+            expected["preproc_fingerprint"] = self.preproc.fingerprint()
+            if "catalog" in split.manifest:
+                expected["manifest_provenance"] = split.manifest
+        self.split_expectations = expected  # read by contract.evaluate too
         if self.lobo:
-            assert_split_valid(split, context_bins=self.context_bins)
+            assert_split_valid(split, context_bins=self.context_bins, **expected)
             self.plan = None
         else:
-            self.plan = window_plan(split, context_bins=self.context_bins, stride_bins=1)
+            self.plan = window_plan(
+                split, context_bins=self.context_bins, stride_bins=1, **expected
+            )
         self.pseudo_sessions = target == "block"
         if target == "movement_state" and behaviour_root is None:
             behaviour_root = load_data_config().bwm_behavior_root
@@ -138,7 +161,7 @@ class SplitData:
         for eid in sorted(set().union(*split.partitions.values())):
             session = load(eid)
             binned = preprocess_session(session, self.preproc)
-            units = apply_unit_qc(session, self.preproc.qc).units.loc[list(binned.unit_ids)]
+            units = apply_qc(session, self.preproc.qc).units.loc[list(binned.unit_ids)]
             if unit_ids is not None and eid in unit_ids:
                 binned, units = self._subset(session, binned, units, list(unit_ids[eid]))
             self._prepared[eid] = _Prepared(
@@ -199,12 +222,19 @@ class SplitData:
             if context_bins is None:
                 raise ValueError(f"{self.target} needs context_bins (the model's window)")
             return context_bins
-        window = self.targets.windows[self.target].n_bins(self.preproc.bin_ms)
+        if self.task_target:
+            name = task_targets.target_name(self.target)
+            window = task_targets.window_bins(self.task, name, self.preproc.bin_ms)
+        else:
+            window = self.targets.windows[self.target].n_bins(self.preproc.bin_ms)
         if context_bins is not None and context_bins != window:
             raise ValueError(f"{self.target}'s window is {window} bins, not {context_bins}")
         return window
 
     def _build_target(self, session: Session, binned: BinnedSpikes):
+        if self.task_target:
+            name = task_targets.target_name(self.target)
+            return task_targets.task_trial_target(session, binned, self.task, name)
         if self.target == "wheel_velocity":
             return bin_targets.wheel_velocity(session, binned, self.targets)
         if self.target == "movement_state":
@@ -300,7 +330,17 @@ class SplitData:
         if pseudo is None and shift is None:
             self.dropped[(eid, key)] = int((~inside).sum())
         table = table[inside].reset_index(drop=True)
-        features, _ = trial_trialstruct_features(p.trials, replace(target, table=table), self.nulls)
+        if self.task_target:
+            features, _ = task_targets.task_trialstruct_features(
+                p.trials.trials,
+                replace(target, table=table),
+                self.task,
+                history_trials=self.nulls.history_trials,
+            )
+        else:
+            features, _ = trial_trialstruct_features(
+                p.trials, replace(target, table=table), self.nulls
+            )
         ends = table["end_bin"].to_numpy(np.int64)
         return ends, table["label"].to_numpy(np.float64), features
 
@@ -311,7 +351,11 @@ class SplitData:
             task = task_bins(p.trials, b.first_bin, b.n_bins, b.bin_ms)
             minimum = math.ceil(self.nulls.min_shift_s * 1000 / b.bin_ms)
             return draw_shifts(task.stop - task.start, minimum, n_shifts, seed=seed)
-        return draw_shifts(len(p.target.table), self.nulls.min_shift_trials, n_shifts, seed=seed)
+        # A task's own targets use the minimum shift its definition declares.
+        minimum = (
+            self.task.decoding.min_shift_trials if self.task_target else self.nulls.min_shift_trials
+        )
+        return draw_shifts(len(p.target.table), minimum, n_shifts, seed=seed)
 
 
 class _Fold:

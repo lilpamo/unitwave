@@ -6,6 +6,95 @@ first.
 
 ---
 
+### 2026-10-03 — Step 8a: decoding for any task (`targets/task.py`, `qc/rules.py`, a task's `decoding` section)
+
+**What (the user's step 8, its first part):** decoding a task's own trial targets on
+any session, with the six-row contract, splits from the registry and balanced
+accuracy and AUROC. IBL's targets and pipeline are unchanged.
+
+**Signed off by the user (2026-10-03, in chat):**
+- **`preprocess/` changes (§10):** `preprocess_session` now applies the session's own
+  unit QC rule: IBL's label, the Phy group, spike times or an NWB layout's quality
+  (`qc/rules.apply_qc`).
+  - IBL's rule takes exactly the old path (`apply_unit_qc`). Its preprocessing
+    fingerprint is unchanged (317be1f8…6c46, pinned by a test), and
+    `PREPROC_VERSION` isn't bumped.
+  - Other rules get their own fingerprint, since `PreprocConfig.fingerprint` hashes
+    the rule.
+- **The shuffle null's minimum shift is declared per task** (`decoding.min_shift_trials`).
+  IBL keeps 100 (configs/nulls.yaml, longer than any block). Steinmetz declares 20:
+  a trial is repeated after an error, up to 9 presentations in a row on Richards
+  2017-10-31. A task without a decoding section can't be decoded.
+- **The no-spikes baseline for a task's target:**
+  - the task's `trialstruct` variables on the current trial;
+  - every trialstruct variable on the previous 10 trials (configs/nulls.yaml's
+    `history_trials`; 0 before the first trial and for missing values).
+  - **Refinement (mine, flagged):** the current trial also leaves out the target's
+    own columns and the variables the target declares as only known after its window
+    (`after`). Otherwise Steinmetz's baseline would see the current feedback, which,
+    with the contrasts, gives the choice away. IBL's hand-written baseline already
+    leaves the current outcome out.
+- **The proof:** Steinmetz choice (and IBL, unchanged).
+
+**How a task declares a target** (`decoding.targets.<name>`):
+- **What:** the condition and its two levels (the second is label 1).
+- **Window:** an event, and start and stop in seconds.
+- **Trials:** the task's trial filters it uses (flags or exclusions).
+- **`after`:** the variables only known after the window.
+
+Trials are selected by the filters first, then the levels, then the event; each
+exclusion is counted by reason. Windows end at the last bin finishing by
+event + stop, as IBL's do.
+
+**Without changing `splits/`:**
+- **The split:** a session outside the BWM release is registered with a one-session
+  catalogue: its eid, with subject and lab "unknown". Within-session splits read
+  nothing else from a manifest, so the split code is unchanged.
+- **The guard** already takes what to compare a split against. A task target's
+  provider passes its catalogue and its preprocessing fingerprint
+  (`split_expectations`), and the contract's runner passes them on. IBL keeps the
+  release defaults.
+
+**Studio:**
+- A session outside the BWM release on a non-IBL task offers its task's targets.
+- A target is offered only when the session's trials have its columns; otherwise the
+  page names the missing ones.
+- IBL-task sessions behave as before: BWM sessions decode IBL's targets, and a Phy
+  folder is refused with the old message.
+
+**The proof (Steinmetz Richards 2017-10-31, opened from the homepage, decoded from the
+page):**
+- **Target:** choice, right vs left, in the 100 ms before the response.
+- **Trials:** 12 disengaged and 74 no-go trials excluded.
+- **Split:** within-session, 208 train and 51 test trials with a 2 s gap; 24 usable
+  test trials. 455 units.
+
+| Row | AUROC | Balanced accuracy |
+|---|---|---|
+| null_shuffle | 0.478 | 0.500 |
+| null_trialstruct | 0.944 | 0.916 |
+| baseline_ridge (= model) | 1.000 | 0.955 |
+| model | 1.000 | 0.955 |
+| ceiling_within (= model) | 1.000 | 0.955 |
+
+- **Gate (model_with_task vs null_trialstruct): NOT PASSED.** ΔAUROC +0.056,
+  p = 0.21, q = 0.28 (paired bootstrap over the 24 test trials, 2,000 resamples).
+- **The model beats null_shuffle:** p = 0.0099, its rank among 100 shifted refits.
+- **Why not passed:** the contrasts predict this mouse's choices nearly perfectly,
+  and 24 test trials can't show a 0.056 gain.
+- **AUROC 1.000 isn't a leak:**
+  - the split is temporal with a gap, and normalisation is fit on training trials
+    only;
+  - the window ends when the wheel reaches threshold, so the wheel is already
+    turning, and units see the movement being made.
+
+  This decodes the movement in progress, not a decision.
+
+**IBL unchanged:** the decoding, contract, single-session, CLI, data-provider, split,
+binning and golden tests all pass, including the real d23a44ef decoding run.
+
+**Not done yet (step 8 continues):** trajectories and region summaries for any task.
+
 ### 2026-10-02 — Step 7: a dataset without the Allen mouse atlas, MC_Maze_Small (`configs/nwb/nlb_mc_maze.yaml`, `configs/tasks/nlb_mc_maze.yaml`)
 
 **The choice (the user's, of four proposed):** Neural Latents Benchmark MC_Maze_Small,

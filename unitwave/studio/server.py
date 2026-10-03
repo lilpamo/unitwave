@@ -624,7 +624,9 @@ class Studio:
     def _decoding_info(self) -> dict:
         """What the page offers for decoding, and why not when it can't."""
         cfg, windows = self.decode_cfg, load_target_config().windows
-        ibl = self.source is not None and self.source.kind == "ibl" and self.source.backend == "bwm"
+        ibl = self._bwm()
+        if not ibl and self.task.name != DEFAULT_TASK:
+            return self._task_decoding_info()  # a task's own targets (step 8a)
 
         def label(target: str) -> str:
             if target == "movement_state":
@@ -660,17 +662,73 @@ class Studio:
             "alpha": cfg.alpha,
         }
 
+    def _bwm(self) -> bool:
+        return (
+            self.source is not None and self.source.kind == "ibl" and self.source.backend == "bwm"
+        )
+
+    def _task_decoding_info(self) -> dict:
+        """A session outside the BWM release decodes its task's own targets, if its
+        definition declares any (step 8a)."""
+        cfg, d = self.decode_cfg, self.task.decoding
+        base = {
+            "train_fraction": cfg.train_fraction,
+            "gap_s": cfg.gap_s,
+            "leave_one_block_out": [],
+            "n_shifts": cfg.n_shifts,
+            "n_bootstrap": cfg.n_bootstrap,
+            "alpha": cfg.alpha,
+        }
+        if d is None or not d.targets:
+            why = f"The task definition ({self.task.label}) declares no decoding targets."
+            return {**base, "available": False, "why": why, "targets": []}
+        targets, lacking = [], {}
+        trials = self.session.trials
+        for name, t in d.targets.items():
+            needed = [
+                *self.task.conditions[t.condition].columns,
+                *self.task.events[t.event].columns,
+                *(c for f in t.trial_filters for c in self.task.trial_filters[f].columns),
+                *self.task.trialstruct,
+            ]
+            missing = [c for c in dict.fromkeys(needed) if c not in trials]
+            if missing:
+                lacking[name] = missing
+                continue
+            event = self.task.events[t.event].label.lower()
+            span = f"{t.start_s * 1000:+.0f} to {t.stop_s * 1000:+.0f} ms from {event}"
+            targets.append({"id": f"task:{name}", "label": f"{t.label} ({span})"})
+        if not targets:
+            why = "; ".join(
+                f"{name} needs {', '.join(cols)}, which this session's trials lack"
+                for name, cols in lacking.items()
+            )
+            return {
+                **base,
+                "available": False,
+                "why": f"No decoding target fits: {why}.",
+                "targets": [],
+            }
+        return {**base, "available": True, "why": "", "targets": targets}
+
     def decode_start(self, body: dict, manifest) -> dict:
         """Start decoding body["target"] from the units shown by body["query"], in the
         background (analysis.decoding). One run at a time."""
-        if self.source is None or self.source.kind != "ibl" or self.source.backend != "bwm":
+        target = body.get("target")
+        if self.task.name != DEFAULT_TASK and not self._bwm():  # a task's own targets
+            info = self._task_decoding_info()
+            offered = [t["id"] for t in info["targets"]]
+            if not info["available"]:
+                raise ValueError(info["why"])
+            if target not in offered:
+                raise ValueError(f"{target!r} is not a decoding target here: one of {offered}")
+        elif not self._bwm():
             raise ValueError(
                 "decoding needs a Brain Wide Map session: splits come from the split "
                 "registry, which is built on the release's session manifest, and a Phy "
                 "folder has none yet"
             )
-        target = body.get("target")
-        if target not in self.decode_cfg.targets:
+        elif target not in self.decode_cfg.targets:
             raise ValueError(
                 f"{target!r} is not a Studio decoding target: one of {list(self.decode_cfg.targets)}"
             )
@@ -705,14 +763,16 @@ class Studio:
                 self._decode.update(stage=stage, done=done, total=total)
 
         try:
+            own = {} if self._bwm() else {"session": self.session, "qc": self.qc, "task": self.task}
             run = decode(
                 self.session.eid,
                 target,
                 unit_ids=shown,
                 cfg=self.decode_cfg,
-                manifest=manifest,
+                manifest=manifest if self._bwm() else None,
                 load=lambda eid: self.session,
                 progress=progress,
+                **own,
             )
             update = {"state": "done", "summary": run.summary()}
         except ValueError as e:  # a plain refusal, e.g. too few biased blocks
@@ -1796,7 +1856,10 @@ def make_handler(app: "App | Studio", freshness: Freshness | None = None):
         "/api/sets/open": app.open_set,
         "/api/project": lambda view: app.require().save(view),
         "/api/export": lambda view: app.require().export(view),
-        "/api/decode": lambda body: app.require().decode_start(body, app.manifest),
+        # The BWM manifest only for a BWM session: other sessions get a one-session catalogue.
+        "/api/decode": lambda body: app.require().decode_start(
+            body, app.manifest if app.require()._bwm() else None
+        ),
     }
 
     class Handler(BaseHTTPRequestHandler):
