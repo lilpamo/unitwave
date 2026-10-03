@@ -26,12 +26,17 @@ Units without a region at the level (None, "root", "void") count among their
 session's units, but are never a region.
 
 Per-session labels (`session_labels`) are Studio's, computed the same way:
-- **Which units:** the QC-passing units of every probe (configs/qc.yaml).
-- **Which trials:** the set's trial filter.
-- **Which test:** responsiveness, selectivity or movement locking, with its own
-  null and BH across that session's units (configs/analysis.yaml,
-  selectivity.yaml, movement.yaml). tests/test_summary.py checks them against
-  Studio's on a real session.
+- **Which task:** the label's task definition (IBL's by default, step 8c). Its
+  events, comparisons and movement events are the ones a label may name.
+- **Which units:** the QC-passing units of every probe, by the session's own rule
+  (IBL's configs/qc.yaml by default; an NWB layout's quality column, or spike times).
+- **Which trials:** the set's trial filter, read with the task's filters.
+- **Which test:** responsiveness, selectivity (the circular test for angles) or
+  movement locking, with its own null and BH across that session's units
+  (configs/analysis.yaml, selectivity.yaml, movement.yaml). tests/test_summary.py and
+  tests/test_summary_tasks.py check them against Studio's on real sessions.
+- **No regions, no labels:** a session without brain regions is refused, with the
+  reason its source gives.
 """
 
 import os
@@ -44,11 +49,12 @@ import yaml
 from scipy.stats import false_discovery_control, hypergeom
 
 from unitwave.analysis.atlas import region_at_level
-from unitwave.analysis.conditions import CONDITIONS, TrialFilter, apply_trial_filter
-from unitwave.analysis.events import EVENTS, event_times
+from unitwave.analysis.conditions import TrialFilter, apply_trial_filter
+from unitwave.analysis.events import event_times
 from unitwave.analysis.movement import load_movement_config, movement_locking
 from unitwave.analysis.responsiveness import load_response_config, responsiveness
-from unitwave.analysis.tuning import load_selectivity_config, selectivity
+from unitwave.analysis.tasks import DEFAULT_TASK, TaskDefinition, load_task
+from unitwave.analysis.tuning import circular_selectivity, load_selectivity_config, selectivity
 from unitwave.analysis.units import unit_table
 from unitwave.qc.units import load_qc_config
 
@@ -74,44 +80,72 @@ def load_summary_config(path: str | os.PathLike = DEFAULT_CONFIG) -> SummaryConf
 
 @dataclass(frozen=True)
 class LabelSpec:
-    """kind: "responsive" (to event), "selective" (for condition split, at event) or
-    "locked" (movement-locked; no event)."""
+    """kind: "responsive" (to event), "selective" (for comparison split, at event) or
+    "locked" (movement-locked; no event). task: a built-in task's name or a definition's
+    YAML path; its events, comparisons and movement events are the ones allowed."""
 
     kind: str
     event: str = ""
     split: str = ""
+    task: str = DEFAULT_TASK
 
     def __post_init__(self) -> None:
         if self.kind not in ("responsive", "selective", "locked"):
             raise ValueError(f"unknown label kind {self.kind!r}: responsive, selective or locked")
-        if self.kind != "locked" and self.event not in EVENTS:
-            raise ValueError(f"{self.kind} needs an event, one of {sorted(EVENTS)}")
-        if self.kind == "selective" and self.split not in CONDITIONS:
-            raise ValueError(f"selective needs a condition, one of {sorted(CONDITIONS)}")
+        task = self.definition()
+        if self.kind != "locked" and self.event not in task.events:
+            raise ValueError(f"{self.kind} needs an event, one of {sorted(task.events)}")
+        if self.kind == "selective" and self.split not in task.comparisons:
+            raise ValueError(
+                "selective needs a condition with a comparison in the "
+                f"{task.label} definition, one of {sorted(task.comparisons)}"
+            )
+        if self.kind == "locked" and task.movement is None:
+            raise ValueError(
+                f"the {task.label} definition declares no movement events, so movement "
+                "locking isn't available"
+            )
+
+    def definition(self) -> TaskDefinition:
+        return load_task(self.task)
 
     def describe(self) -> str:
+        task = self.definition()
         if self.kind == "responsive":
-            return f"responsive to {EVENTS[self.event][0].lower()}"
+            return f"responsive to {task.events[self.event].label.lower()}"
         if self.kind == "selective":
-            return f"selective for {CONDITIONS[self.split][0].lower()} at {EVENTS[self.event][0].lower()}"
+            return (
+                f"selective for {task.conditions[self.split].label.lower()} at "
+                f"{task.events[self.event].label.lower()}"
+            )
         return "movement-locked"
 
 
-def session_labels(session, label: LabelSpec, trial_filter: dict, *, level: str) -> pd.DataFrame:
+def session_labels(
+    session, label: LabelSpec, trial_filter: dict, *, level: str, qc=None
+) -> pd.DataFrame:
     """(n_units, 4) eid, unit_id, region (at level), labelled: the session's QC-passing
-    units, labelled by the same test Studio runs, on the set's trial filter."""
-    units = unit_table(session, load_qc_config())
+    units, labelled by the same test Studio runs, on the set's trial filter. qc: the
+    session's unit QC rule (default: IBL's, configs/qc.yaml)."""
+    if "units.acronym" not in session.available.present:
+        why = session.available.missing.get("units.acronym", "not in this session")
+        raise ValueError(f"{session.eid}: no brain regions: {why}")
+    task = label.definition()
+    task.require(session.trials)
+    units = unit_table(session, qc if qc is not None else load_qc_config())
     ids = list(units.index[units["qc_passed"].astype(bool)])
     if not ids:
         raise ValueError(f"{session.eid}: no unit passes QC")
-    sel = apply_trial_filter(session.trials, TrialFilter.from_dict(trial_filter))
+    sel = apply_trial_filter(session.trials, TrialFilter.from_dict(trial_filter, task))
     trials = session.trials[sel.mask]
     response = load_response_config()
     if label.kind == "responsive":
-        table = responsiveness(session.spikes, ids, event_times(trials, label.event), response)
+        events = event_times(trials, label.event, task)
+        table = responsiveness(session.spikes, ids, events, response)
         column = "responsive"
     elif label.kind == "selective":
-        table = selectivity(
+        circular = task.comparisons[label.split].kind == "circular"
+        table = (circular_selectivity if circular else selectivity)(
             session.spikes,
             ids,
             session.trials,
@@ -120,11 +154,12 @@ def session_labels(session, label: LabelSpec, trial_filter: dict, *, level: str)
             response,
             load_selectivity_config(),
             trial_mask=sel.mask,
+            task=task,
         )
         column = "selective"
     else:
         table = movement_locking(
-            session.spikes, ids, trials, load_movement_config(), response.alpha
+            session.spikes, ids, trials, load_movement_config(), response.alpha, task
         )
         column = "locked"
     assert list(table.index) == ids

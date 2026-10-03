@@ -1577,9 +1577,16 @@ class App:
         failed = m["sessions_failed"]
         refused = regions[regions["refused"] != ""]
         left_out = f" ({len(failed)} left out: {'; '.join(sorted(set(failed.values())))})"
+        the_set = m["set"]
+        if the_set.get("kind") == "nwb":  # files named on the command line (step 8c)
+            of = (
+                f"NWB files '{the_set['name']}' ({the_set['layout_label']}, task {the_set['task']})"
+            )
+        else:
+            of = f"sessions of set '{the_set['name']}'"
         caption = (
             f"{m['label_text']} · {m['level']} regions · {len(m['sessions_used'])} of "
-            f"{len(m['set']['eids'])} sessions of set '{m['set']['name']}'"
+            f"{len(the_set['eids'])} {of}"
             f"{left_out if failed else ''} · {m['n_units']} units · per region: labelled "
             "units summed over sessions against the exact null with region labels permuted "
             "within each session, two-sided, Benjamini–Hochberg across "

@@ -97,3 +97,17 @@ def test_the_app_serves_the_list_the_table_and_both_figures(tmp_path):
         assert png[:8] == b"\x89PNG\r\n\x1a\n"
     with pytest.raises(ValueError, match="flatmap or spread"):
         app.summary_png({"run": RUN, "kind": "other"})
+
+
+def test_a_run_over_nwb_files_says_so(tmp_path):
+    from unitwave.data.load import load_data_config
+    from unitwave.studio.server import App
+
+    out = _write_run(tmp_path)
+    manifest = json.loads((out / "manifest.json").read_text())
+    manifest["set"].update(
+        kind="nwb", layout="steinmetz_2019", layout_label="Steinmetz et al. 2019", task="steinmetz"
+    )
+    (out / "manifest.json").write_text(json.dumps(manifest))
+    caption = App(load_data_config(), runs_dir=tmp_path).summary_json({"run": RUN})["caption"]
+    assert "5 of 6 NWB files 'CA1 examples' (Steinmetz et al. 2019, task steinmetz)" in caption

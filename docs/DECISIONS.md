@@ -6,6 +6,73 @@ first.
 
 ---
 
+### 2026-10-03 — Step 8c: region summaries for any task with regions (`analysis/summary.py`, `cli/summarise.py`)
+
+**What (the user's step 8, its last part):** S5's region summaries for any dataset with
+brain regions. The region test is unchanged: the session is the unit of inference
+(region labels permuted within each session, exact null), BH across regions, and at
+least 5 sessions for a verdict (configs/summary.yaml).
+
+**Labels follow the task:**
+- **A label names its task** (`LabelSpec.task`, IBL's by default). It is checked
+  against that task's events, its comparisons (selective) and its movement events
+  (locked). Steinmetz declares no movement events, so its "locked" is refused.
+- **Tightened for IBL:** "selective" now needs a condition with a comparison. Before,
+  any IBL condition was accepted, and then every session failed its selectivity test.
+- **Each session is labelled with its own unit QC rule** (an NWB layout's quality
+  column, or spike times), with the same test Studio runs. Angles take the circular
+  test. Checked against Studio's own results on Steinmetz Richards 2017-10-31
+  (responsive and selective for choice, engaged trials). IBL's own check is unchanged.
+- **No regions, no labels:** a session without brain regions is left out with its
+  source's reason. A layout that refuses regions (MC_Maze) is refused before any file
+  is read.
+
+**NWB files are named on the command line (mine, flagged):** `python -m
+unitwave.cli.summarise --nwb FILE … --layout L --name N`.
+- **Why:** a saved set holds IBL release sessions, chosen on the homepage from the
+  catalogue, and NWB files have no catalogue. The set format is unchanged.
+- **The run records:** each file's path and sha256, the layout and its label, the task,
+  the trial filter (default: the filters the task turns on), and the QC, layout and task
+  configs with their sha256.
+- **The homepage:** it lists the run like any other, and its caption says "NWB files"
+  with the layout.
+
+**The proof: six Steinmetz sessions (DANDI 000017), chosen by the user:**
+- **How they were chosen:** every file's electrode locations, peak channels and phy
+  annotations were streamed, with nothing stored. The six give CA1, DG, MOs, SUB and
+  VISp at least 5 good units in at least 5 sessions, for the smallest download (2.03
+  GB): Cori 2016-12-14, Forssmann 2017-11-01, Lederberg 2017-12-05 and 2017-12-07,
+  Richards 2017-10-29, Theiler 2017-10-11.
+- **Checked:** all 39 files' locations are Allen CCF acronyms. All six downloads match
+  DANDI's sha256.
+- **The run:** responsive to stimulus onset (0–0.3 s against −0.2–0 s), engaged trials;
+  5,456 QC-passing units; 6 of 6 sessions used.
+
+| Region | Sessions | Units | Labelled | Expected | q | Verdict |
+|---|---|---|---|---|---|---|
+| SUB | 5 | 416 | 214 | 130.1 | 8.4e-21 | more |
+| VISp | 5 | 289 | 135 | 107.3 | 6.2e-4 | more |
+| MOs | 6 | 371 | 142 | 116.7 | 3.6e-3 | more |
+| DG | 5 | 335 | 76 | 88.4 | 0.13 | no claim |
+| CA1 | 5 | 263 | 67 | 76.0 | 0.21 | no claim |
+
+18 regions are refused (units in fewer than 5 sessions). Run
+`20261003T081859429482Z_summary_responsive_steinmetz-six`.
+- **SUB, investigated before reporting:**
+  - **Per session:** it is above its session's other units in 4 of 5 sessions.
+  - **Not a firing-rate artefact:** within firing-rate quartiles, SUB units are still
+    labelled far more often. On Theiler 2017-10-11, its units' median rate equals the
+    rest's (1.6 vs 1.7 Hz), yet 43–90% are labelled against 11–43%.
+  - **No interpretation:** what the label means biologically is left to prose by a
+    human (§5).
+
+**Fixed on the way:** the spread figure's refused list ran into its axis label
+(`viz/summary_plots.py`). The list is now wrapped by hand, and the figure grows by its
+lines (a test checks the two don't meet).
+
+**Not changed:** the region test, its config and its figures' content; IBL's labels;
+the set format.
+
 ### 2026-10-03 — Step 8b: population trajectories for any task, and colours by condition type (`studio/server.py`, `viz/studio_plots.ramp_colours`)
 
 **What (the user's step 8, its second part):** trajectories for any task. The analysis

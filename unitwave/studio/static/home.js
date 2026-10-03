@@ -295,7 +295,8 @@ function summaryHow() {
   const file = $('setList').value || 'NAME.unitwave-set.json';
   $('summaryHow').textContent = 'Made from a saved set on the command line, because every session is tested (minutes per session): ' +
     `python -m unitwave.cli.summarise "${state.setsFolder}/${file}" --label responsive --event stim_on ` +
-    '(or --label selective --event stim_on --split choice, or --label locked).';
+    '(or --label selective --event stim_on --split choice, or --label locked). ' +
+    'NWB files with brain regions: python -m unitwave.cli.summarise --nwb FILE … --layout LAYOUT --name NAME --label …';
 }
 function drawSummary() {
   const run = encodeURIComponent($('summaryRun').value);

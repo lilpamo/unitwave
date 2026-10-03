@@ -7,6 +7,7 @@ sessions. The spread shows every session separately, never only the pooled numbe
 (spread), never coloured as results.
 """
 
+import textwrap
 import warnings
 
 import numpy as np
@@ -110,10 +111,18 @@ def build_region_spread(
     tested = regions[regions["refused"] == ""]
     order = _excess(tested).sort_values().index.tolist()
     rows = max(len(order), 1)
-    fig = Figure(figsize=(6.4, 1.2 + 0.26 * rows))
+    refused = regions[regions["refused"] != ""]
+    # The refused list is wrapped by hand, and the figure grows by its lines, so a long
+    # list (18 regions on six Steinmetz sessions) stays below the axis label.
+    note = []
+    if len(refused):
+        listed = ", ".join(f"{name} ({row['n_sessions']})" for name, row in refused.iterrows())
+        note = textwrap.wrap(f"refused, too few sessions: {listed}", 120)
+    height = 1.2 + 0.26 * rows + 0.12 * len(note)
+    fig = Figure(figsize=(6.4, height))
     add, _ = _frame(fig, title, t["ink2"])
-    bottom = 0.75 / (1.2 + 0.26 * rows)
-    ax = add((0.42, bottom, 0.54, 1 - bottom - 0.04))
+    bottom = (0.75 + 0.12 * len(note)) / height
+    ax = add((0.42, bottom, 0.54, 1 - bottom - 0.04 * (1.2 + 0.26 * rows) / height))
     labels = []
     for y, region in enumerate(order):
         rows_r = sessions[sessions["region"] == region]
@@ -137,18 +146,8 @@ def build_region_spread(
     ax.set_axisbelow(True)
     _style(ax, t)
     ax.tick_params(axis="y", labelsize=7, length=0)
-    refused = regions[regions["refused"] != ""]
-    if len(refused):
-        listed = ", ".join(f"{name} ({row['n_sessions']})" for name, row in refused.iterrows())
-        fig.text(
-            0.02,
-            0.01,
-            f"refused, too few sessions: {listed}",
-            size=7,
-            color=t["ink2"],
-            wrap=True,
-            va="bottom",
-        )
+    if note:
+        fig.text(0.02, 0.06 / height, "\n".join(note), size=7, color=t["ink2"], va="bottom")
     return fig
 
 

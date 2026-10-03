@@ -24,6 +24,28 @@ def _summary():
     return region_summary(units, CFG)
 
 
+def test_a_long_refused_list_sits_below_the_axis_label():
+    """18 refused regions (Steinmetz, six sessions) wrap onto several lines; none may
+    overlap the x-axis label."""
+    regions, sessions = _summary()
+    many = pd.DataFrame(
+        {"n_sessions": 2, "refused": "in 2 sessions; a verdict needs at least 3"},
+        index=[f"R{i:02d}" for i in range(40)],
+    )
+    regions = pd.concat([regions, many])
+    fig = build_region_spread(regions, sessions, "light")
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+    canvas = FigureCanvasAgg(fig)
+    canvas.draw()  # places the axis label
+    renderer = canvas.get_renderer()
+    label = fig.axes[0].xaxis.label.get_window_extent(renderer)
+    note = next(t for t in fig.texts if "refused" in t.get_text())
+    box = note.get_window_extent(renderer)
+    assert box.y1 < label.y0 and box.y0 >= 0  # below the label, inside the figure
+    assert note.get_text().count("\n") >= 1 and box.x1 <= fig.bbox.x1
+
+
 @pytest.mark.parametrize("theme", ["light", "dark"])
 def test_the_spread_shows_every_session_of_every_tested_region(theme):
     regions, sessions = _summary()

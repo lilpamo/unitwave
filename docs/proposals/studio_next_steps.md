@@ -209,7 +209,7 @@ The plan, as written:
 - **The proof:** everything works without an atlas, and atlas-only features are
   disabled with the reason.
 
-### Step 8. Decoding, trajectories and region summaries, for any task — decoding and trajectories built (2026-10-03)
+### Step 8. Decoding, trajectories and region summaries, for any task — built (2026-10-03)
 
 **8a, decoding: built** (`docs/DECISIONS.md`, "Step 8a").
 - **What changed:**
@@ -229,6 +229,25 @@ checked on MC_Maze and Allen, and IBL is unchanged.
   and categories and angles take the categorical slots.
 - **More than 8 categories** aren't drawn by colour; the tuning curve still draws.
 - **MC_Maze** gets a Mazes filter.
+
+**8c, region summaries: built (2026-10-03)** (`docs/DECISIONS.md`, "Step 8c").
+- **What changed:**
+  - a label names its task, and is checked against the task's events, comparisons
+    and movement events;
+  - each session is labelled with its own unit QC rule; angles take the circular
+    test;
+  - NWB files are named on the command line with their layout (a saved set still
+    holds IBL sessions);
+  - a layout without brain regions is refused before any file is read, and a session
+    without them is left out with the reason.
+- **Unchanged:** the region test (the session is the unit of inference, with BH
+  across regions) and IBL's labels.
+- **Proven on six Steinmetz sessions,** chosen by streaming every file's regions
+  first, with IBL unchanged. Responsive to stimulus onset, engaged trials: SUB, VISp
+  and MOs hold more labelled units than their sessions predict; DG and CA1 don't
+  differ; 18 regions are refused (too few sessions).
+- **Difference from the plan:** the spread figure's refused list wrapped into the
+  axis label with that many regions; it now sits below it.
 
 The plan, as written:
 
