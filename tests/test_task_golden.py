@@ -13,8 +13,9 @@ import pytest
 from golden.task_golden import OUT, collect, studio
 
 # Fields step 3 adds to the page's JSON: a trial filter's kind, and the single-trial
-# header's task, per-condition levels and flags.
-ADDED = {"kind", "task", "conditions", "flags"}
+# header's task, per-condition levels and flags. Step 9b adds each test result's status
+# (exploratory with why, or confirmatory under a plan).
+ADDED = {"kind", "task", "conditions", "flags", "status", "why", "plan"}
 
 
 @pytest.fixture(scope="module")

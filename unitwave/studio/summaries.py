@@ -16,8 +16,9 @@ _NAME = re.compile(r"^\d{8}T\d{6,12}Z_summary_[a-z]+_[a-z0-9-]*$")
 
 
 def list_summaries(runs_dir: str | os.PathLike) -> list[dict]:
-    """Finished summary runs, newest first: run, label, task, set, level, created,
-    sessions used and left out, regions tested, claims."""
+    """Finished summary runs, newest first: run, label, task, status (exploratory or
+    confirmatory), set, level, created, sessions used and left out, regions tested,
+    claims."""
     runs_dir = Path(runs_dir)
     if not runs_dir.is_dir():
         return []
@@ -33,6 +34,8 @@ def list_summaries(runs_dir: str | os.PathLike) -> list[dict]:
                 "run": folder.name,
                 "label": m["label_text"],
                 "task": m.get("task", "ibl"),  # runs before step 8c were IBL's
+                # Runs before step 9b had no plan to be confirmed by.
+                "status": m.get("plan_status", {}).get("status", "exploratory"),
                 "set": m["set"]["name"],
                 "level": m["level"],
                 "created": m["created"],

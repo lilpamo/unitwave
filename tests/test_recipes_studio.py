@@ -50,6 +50,11 @@ def _nwb(path, layout, task) -> Studio:
 PAGE = {"all": "0", "probe": "", "tf": "{}"}
 
 
+def _numbers(result: dict) -> dict:
+    """A result without its status, which says how it was run (step 9b)."""
+    return {k: v for k, v in result.items() if k not in ("status", "why", "plan")}
+
+
 def _only(store: dict) -> pd.DataFrame:
     assert len(store) == 1
     return next(iter(store.values()))
@@ -67,7 +72,10 @@ def test_recipe_1_gives_the_manual_numbers_on_mc_maze():
         out = by_recipe.recipe_run({"recipe": "stimulus_beyond_movement", "step": step, **PAGE})
         assert out["kind"] in ("responsiveness", "movement_locking")
         assert out["query"] == {**PAGE, **manual}
-        assert out["result"] == getattr(by_hand, method)({**PAGE, **manual})
+        manual_result = getattr(by_hand, method)({**PAGE, **manual})
+        assert _numbers(out["result"]) == _numbers(manual_result)
+        assert manual_result["why"].startswith("a manual test")
+        assert out["result"]["why"] == "no held-out plan names this session and step"
         pd.testing.assert_frame_equal(
             _only(getattr(by_recipe, store)), _only(getattr(by_hand, store))
         )
@@ -88,12 +96,17 @@ def test_recipe_2_on_steinmetz_runs_the_manual_views(richards):
     assert view == {"kind": "split_view", "query": {**page, "event": "stim_on", "split": "choice"}}
     out = richards.recipe_run({"recipe": "choice_beyond_stimulus", "step": "selective", **page})
     by_hand = _nwb(RICHARDS, "steinmetz_2019", "steinmetz")
-    assert out["result"] == by_hand.selectivity_json(
-        {**page, "event": "stim_on", "split": "choice"}
+    assert _numbers(out["result"]) == _numbers(
+        by_hand.selectivity_json({**page, "event": "stim_on", "split": "choice"})
     )
     pd.testing.assert_frame_equal(_only(richards._selectivity), _only(by_hand._selectivity))
     decode = richards.recipe_run({"recipe": "choice_beyond_stimulus", "step": "decode", **page})
-    assert decode == {"kind": "decoding", "query": page, "target": "task:choice"}
+    assert decode == {
+        "kind": "decoding",
+        "query": page,
+        "target": "task:choice",
+        "recipe": "choice_beyond_stimulus/decode",  # sent back with the decoding request
+    }
     steps = {r["name"]: r for r in richards.recipes_json({})["recipes"]}["choice_beyond_stimulus"]
     assert "the 100 ms before the response" in steps["steps"][2]["analysis"]["points"][0]["text"]
 
@@ -107,3 +120,12 @@ def test_recipe_3_gives_the_command_for_this_file(richards, tmp_path):
     assert "--label responsive --event stim_on" in command
     assert out["label"] == "responsive to stimulus onset"
     assert all(r["task"] == "steinmetz" for r in out["runs"])  # not IBL's runs of the same label
+
+
+def test_a_recipe_step_can_only_start_the_decoding_target_it_names(richards):
+    with pytest.raises(ValueError, match="is not a recipe step decoding"):
+        richards.decode_start(
+            {"target": "task:choice", "recipe": "stimulus_beyond_movement/respond", "query": {}},
+            manifest=None,
+        )
+    assert richards.decode_status({})["state"] == "idle"  # nothing started

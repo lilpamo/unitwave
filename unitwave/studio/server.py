@@ -11,6 +11,7 @@ each request by calling analysis/ (numbers), viz/ (PNGs) and data/atlas_meshes
 
 import argparse
 import dataclasses
+import hashlib
 import json
 import mimetypes
 import re
@@ -18,6 +19,8 @@ import sys
 import threading
 import time
 import traceback
+from datetime import UTC, datetime
+from functools import cached_property
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
@@ -120,6 +123,7 @@ from unitwave.qc.nwb import NwbUnitQC
 from unitwave.qc.phy import PhyUnitQC
 from unitwave.qc.spike_times import UNAVAILABLE, SpikeQC, load_spike_qc_config
 from unitwave.studio import APP_NAME
+from unitwave.studio.analysis_log import log_key, make_entry, running_total, write_log
 from unitwave.studio.entry import (
     complete_nwb_path,
     complete_phy_path,
@@ -130,17 +134,20 @@ from unitwave.studio.entry import (
 )
 from unitwave.studio.export import export_view
 from unitwave.studio.freshness import Freshness
+from unitwave.studio.plans import plan_status, source_identity
 from unitwave.studio.project import (
     DEFAULT_VIEW,
     REPO,
     SUFFIX,
     Source,
+    _configs,
     load_source,
     make_project,
     open_project,
     qc_config_path,
     save_project,
     saving_path,
+    session_fingerprint,
 )
 from unitwave.studio.sets import list_sets, read_set, save_set, set_path
 from unitwave.studio.summaries import list_summaries, read_summary
@@ -195,6 +202,7 @@ class Studio:
         warnings: list[str] = (),
         ibl_alf: Path | None = None,
         task: TaskDefinition | None = None,
+        analysis_log: list | None = None,
     ):
         self.session = session
         # The task definition the trials table is read with (analysis.tasks): the
@@ -241,6 +249,11 @@ class Studio:
         self.decode_cfg = load_decoding_config()
         self._decode_lock = threading.Lock()
         self._decode: dict = {"state": "idle"}
+        # The analysis log (step 9b): every test computed here, written to the project
+        # file at once; held-out plans decide which runs are confirmatory.
+        self.analysis_log: list[dict] = list(analysis_log or [])
+        self.plans_dir = load_data_config().data_root / "plans"
+        self._log_lock = threading.Lock()
 
     def _test_key(self, q: dict) -> tuple:
         """A result belongs to one event, unit set, probe and trial filter."""
@@ -352,6 +365,7 @@ class Studio:
     def session_json(self, q: dict) -> dict:
         missing = self.session.available.missing
         return {
+            "log": running_total(self.analysis_log),
             "eid": self.session.eid,
             "n_trials": self.session.n_trials,
             "n_units_total": len(self.units),
@@ -537,13 +551,94 @@ class Studio:
         """Write the project file: source, hashes, configs and this view, never results."""
         if self.source is None or self.project_path is None:
             raise ValueError("this Studio was started without a data source to save")
-        save_project(make_project(self.source, self.session, self.qc, view), self.project_path)
+        project = make_project(self.source, self.session, self.qc, view)
+        with self._log_lock:
+            project["analysis_log"] = self.analysis_log
+            save_project(project, self.project_path)
         self.view = {**DEFAULT_VIEW, **view}
         return {"path": str(self.project_path)}
 
     def export(self, view: dict) -> dict:
         out = export_view(self, view, RUNS)
         return {"folder": str(out), "files": sorted(p.name for p in out.iterdir())}
+
+    # ---------- the analysis log (step 9b) ----------
+    @cached_property
+    def _fingerprint(self) -> str:
+        return session_fingerprint(self.session)
+
+    @cached_property
+    def _identity(self) -> tuple[str, str | None]:
+        """(eid, sha256 of the source's files), as held-out plans name sessions."""
+        return source_identity(self.source, self.session)
+
+    def _config_hashes(self) -> dict:
+        return {name: c["sha256"] for name, c in _configs(self.qc).items()} | {
+            "task": self.task.name
+        }
+
+    def _log(self, kind: str, what: str, params: dict, t: pd.DataFrame | None, **counts) -> dict:
+        """Log a test that was just computed: write it to the project file at once, and
+        attach the entry to its table (t.attrs) so its status shows with the result.
+        params["recipe"]: the recipe step that ran it, if any (only those can be
+        confirmatory)."""
+        params = dict(params)
+        recipe = params.pop("recipe", None)
+        at = datetime.now(UTC)
+        status = plan_status(
+            self.plans_dir,
+            eid=self._identity[0],
+            sha256=self._identity[1] if recipe else None,
+            step=recipe,
+            trial_filter=params.get("trial_filter", {}),
+            default_units=not params.get("all") and not params.get("probe"),
+            at=at,
+            claim=True,
+        )
+        with self._log_lock:
+            entry = make_entry(
+                self.analysis_log,
+                at=at,
+                kind=kind,
+                what=what,
+                params=params,
+                recipe=recipe,
+                key=log_key(self._fingerprint, kind, params, self._config_hashes()),
+                status=status,
+                **counts,
+            )
+            self.analysis_log.append(entry)
+            if self.project_path is not None and self.source is not None:
+                write_log(
+                    self.project_path,
+                    self.analysis_log,
+                    lambda: make_project(self.source, self.session, self.qc, self.view),
+                )
+        if t is not None:
+            t.attrs["log"] = entry
+        return entry
+
+    def _test_params(self, q: dict, **extra) -> dict:
+        """What a logged test was run on: the units shown and the trial filter (normalised)."""
+        return {
+            "all": q.get("all") == "1",
+            "probe": q.get("probe", ""),
+            "trial_filter": self._filter(q).to_dict(),
+            **extra,
+            "recipe": q.get("_recipe"),
+        }
+
+    @staticmethod
+    def _status(t: pd.DataFrame) -> dict:
+        """A result's status from its log entry: exploratory (with why) or confirmatory."""
+        entry = t.attrs.get("log") or {"status": "exploratory", "why": "not logged"}
+        return {k: entry[k] for k in ("status", "why", "plan") if k in entry}
+
+    def log_json(self, q: dict) -> dict:
+        """The running total and the entries, newest first."""
+        with self._log_lock:
+            log = list(self.analysis_log)
+        return {"total": running_total(log), "entries": log[::-1]}
 
     def test_json(self, q: dict) -> dict:
         """Run (or reuse) the responsiveness test on every shown unit for one event."""
@@ -567,12 +662,24 @@ class Studio:
                 free = movement_free(trials, self.response_cfg.response_window[1], self.task)
                 trials = trials[free]
             events = event_times(trials, q["event"], self.task)
-            self._tests[key] = responsiveness(self.session.spikes, ids, events, self.response_cfg)
+            t = responsiveness(self.session.spikes, ids, events, self.response_cfg)
+            free = q.get("movement_free") == "1"
+            self._log(
+                "responsiveness",
+                f"responsive to {self._event_label(q['event']).lower()}"
+                + (" (movement-free trials)" if free else ""),
+                self._test_params(q, event=q["event"], movement_free=free),
+                t,
+                n_tests=int(t["n_tests"].iloc[0]),
+                n_units=len(ids),
+                n_trials=int(t["n_trials"].iloc[0]),
+            )
+            self._tests[key] = t
         return self._summary(self._tests[key], key[-1])
 
     def _summary(self, t: pd.DataFrame, movement_free_only: bool = False) -> dict:
         up = t["responsive"] & (t["statistic_hz"] > 0)
-        return {
+        return self._status(t) | {
             "movement_free": movement_free_only,
             "n_tests": int(t["n_tests"].iloc[0]),
             "n_responsive": int(t["responsive"].sum()),
@@ -757,6 +864,22 @@ class Studio:
                 f"{target!r} is not a Studio decoding target: one of {list(self.decode_cfg.targets)}"
             )
         q = {k: str(v) for k, v in (body.get("query") or {}).items()}
+        recipe = body.get("recipe")
+        if recipe is not None:  # a recipe step may only start the target it names
+            name, _, step_id = str(recipe).partition("/")
+            step = next(
+                (
+                    s
+                    for r in self._recipes()
+                    if r["name"] == name
+                    for s in r["steps"]
+                    if s["id"] == step_id
+                ),
+                None,
+            )
+            if step is None or step["run"].get("target") != target:
+                raise ValueError(f"{recipe!r} is not a recipe step decoding {target!r}")
+        q["_recipe"] = recipe
         if q.get("responsive") == "1":
             raise ValueError(
                 "decoding can't use 'Responsive only': responsiveness was tested on every "
@@ -777,11 +900,11 @@ class Studio:
                 "n_units_shown": len(shown),
             }
         threading.Thread(
-            target=self._decode_job, args=(target, shown, manifest), daemon=True
+            target=self._decode_job, args=(target, shown, manifest, q), daemon=True
         ).start()
         return self.decode_status({})
 
-    def _decode_job(self, target: str, shown: list, manifest) -> None:
+    def _decode_job(self, target: str, shown: list, manifest, q: dict | None = None) -> None:
         def progress(stage: str, done: int, total: int) -> None:
             with self._decode_lock:
                 self._decode.update(stage=stage, done=done, total=total)
@@ -798,7 +921,25 @@ class Studio:
                 progress=progress,
                 **own,
             )
-            update = {"state": "done", "summary": run.summary()}
+            summary = run.summary()
+            units = "\n".join(shown).encode()
+            entry = self._log(
+                "decoding",
+                f"decoding {target}",
+                {
+                    "target": target,
+                    "units_sha256": hashlib.sha256(units).hexdigest(),
+                    "all": (q or {}).get("all") == "1",
+                    "probe": (q or {}).get("probe", ""),
+                    "recipe": (q or {}).get("_recipe"),
+                },
+                None,
+                n_tests=len(summary["tests"]),
+                n_units=len(shown),
+                n_trials=None,
+            )
+            summary |= {k: entry[k] for k in ("status", "why", "plan") if k in entry}
+            update = {"state": "done", "summary": summary}
         except ValueError as e:  # a plain refusal, e.g. too few biased blocks
             update = {"state": "error", "error": str(e)}
         except Exception as e:  # noqa: BLE001 - a bug: plain words for the page, details in the log
@@ -866,22 +1007,28 @@ class Studio:
             {k: q.get(k, d) for k, d in (("all", "0"), ("probe", ""), ("tf", "{}"))},
         )
         kind = run["kind"]
+        step_id = {"_recipe": f"{recipe['name']}/{step['id']}"}
         if kind == "responsiveness":
             query = {
                 **page,
                 "event": run["event"],
                 "movement_free": "1" if run["movement_free"] else "0",
             }
-            return {"kind": kind, "query": query, "result": self.test_json(query)}
+            return {"kind": kind, "query": query, "result": self.test_json(query | step_id)}
         if kind == "movement_locking":
-            return {"kind": kind, "query": page, "result": self.locking_json(page)}
+            return {"kind": kind, "query": page, "result": self.locking_json(page | step_id)}
         if kind == "selectivity":
             query = {**page, "event": run["event"], "split": run["split"]}
-            return {"kind": kind, "query": query, "result": self.selectivity_json(query)}
+            return {"kind": kind, "query": query, "result": self.selectivity_json(query | step_id)}
         if kind == "split_view":
             return {"kind": kind, "query": {**page, "event": run["event"], "split": run["split"]}}
         if kind == "decoding":
-            return {"kind": kind, "query": page, "target": run["target"]}
+            return {
+                "kind": kind,
+                "query": page,
+                "target": run["target"],
+                "recipe": step_id["_recipe"],
+            }
         label = LabelSpec("responsive", run["event"], task=self.task.name)
         if kind == "choose_sessions":
             return {"kind": kind, "command": self._summary_command(label, page)}
@@ -916,15 +1063,26 @@ class Studio:
         """Run (or reuse) the connection test on every pair of shown units."""
         key = self._pairs_key(q)
         if key not in self._connections:
-            self._connections[key] = connections(
+            t = connections(
                 self.session.spikes, list(key), self.units, self.ccg_cfg, self.response_cfg.alpha
             )
+            units = "\n".join(key).encode()
+            self._log(
+                "connections",
+                "connected pairs among the shown units",
+                {"units_sha256": hashlib.sha256(units).hexdigest(), "recipe": q.get("_recipe")},
+                t,
+                n_tests=int(t["n_tests"].iloc[0]) if len(t) else 0,
+                n_units=len(key),
+                n_trials=None,
+            )
+            self._connections[key] = t
         return self._connections_summary(self._connections[key])
 
     def _connections_summary(self, t: pd.DataFrame) -> dict:
         hit = t[t["connected"]]
         units = sorted(set(t["pre"]))
-        return {
+        return self._status(t) | {
             "n_units": len(units),
             "n_pairs": len(t) // 2,
             "n_tests": int(t["n_tests"].iloc[0]),
@@ -1005,7 +1163,7 @@ class Studio:
             if not ids:
                 raise ValueError("no units to test")
             trials = self._trials(q)[0]
-            self._locking[key] = movement_locking(
+            t = movement_locking(
                 self.session.spikes,
                 ids,
                 trials,
@@ -1013,10 +1171,20 @@ class Studio:
                 self.response_cfg.alpha,
                 self.task,
             )
+            self._log(
+                "movement_locking",
+                "movement-locked",
+                self._test_params(q),
+                t,
+                n_tests=int(t["n_tests"].iloc[0]),
+                n_units=len(ids),
+                n_trials=int(t["n_trials"].iloc[0]),
+            )
+            self._locking[key] = t
         return self._locking_summary(self._locking[key])
 
     def _locking_summary(self, t: pd.DataFrame) -> dict:
-        return {
+        return self._status(t) | {
             "n_tests": int(t["n_tests"].iloc[0]),
             "n_locked": int(t["locked"].sum()),
             "n_trials": int(t["n_trials"].iloc[0]),
@@ -1071,35 +1239,35 @@ class Studio:
                 raise ValueError("no units to test")
             # The full table and a mask: block pseudo-sessions span the whole session.
             comparison = self.task.comparisons.get(q["split"])
-            if comparison is not None and comparison.kind == "circular":
-                self._selectivity[key] = circular_selectivity(
-                    self.session.spikes,
-                    ids,
-                    self.session.trials,
-                    q["event"],
-                    q["split"],
-                    self.response_cfg,
-                    self.selectivity_cfg,
-                    trial_mask=self._trials(q)[1].mask,
-                    task=self.task,
-                )
-            else:
-                self._selectivity[key] = selectivity(
-                    self.session.spikes,
-                    ids,
-                    self.session.trials,
-                    q["event"],
-                    q["split"],
-                    self.response_cfg,
-                    self.selectivity_cfg,
-                    trial_mask=self._trials(q)[1].mask,
-                    task=self.task,
-                )
+            circular = comparison is not None and comparison.kind == "circular"
+            t = (circular_selectivity if circular else selectivity)(
+                self.session.spikes,
+                ids,
+                self.session.trials,
+                q["event"],
+                q["split"],
+                self.response_cfg,
+                self.selectivity_cfg,
+                trial_mask=self._trials(q)[1].mask,
+                task=self.task,
+            )
+            n_trials = t["n_trials"].iloc[0] if circular else t["n_a"].iloc[0] + t["n_b"].iloc[0]
+            self._log(
+                "selectivity",
+                f"selective for {self._condition_label(q['split']).lower()} at "
+                f"{self._event_label(q['event']).lower()}",
+                self._test_params(q, event=q["event"], split=q["split"]),
+                t,
+                n_tests=int(t["n_tests"].iloc[0]),
+                n_units=len(ids),
+                n_trials=int(n_trials),
+            )
+            self._selectivity[key] = t
         return self._selectivity_summary(self._selectivity[key], q)
 
     def _selectivity_summary(self, t: pd.DataFrame, q: dict) -> dict:
         if "index" in t:  # circular
-            return {
+            return self._status(t) | {
                 "kind": "circular",
                 "condition": self._condition_label(q["split"]),
                 "period": float(t["period_deg"].iloc[0]),
@@ -1115,7 +1283,7 @@ class Studio:
             }
         names = self._level_names(q["split"], self.task.comparisons[q["split"]].levels)
         higher_b = t["selective"] & (t["auroc"] > 0.5)
-        return {
+        return self._status(t) | {
             "condition": self._condition_label(q["split"]),
             "a": names[0],
             "b": names[-1],
@@ -1690,6 +1858,12 @@ class App:
             f"α = {cfg['alpha']} · {len(refused)} region{'' if len(refused) == 1 else 's'} "
             f"refused (too few sessions) · run {m['run_id']}"
         )
+        status = m.get("plan_status", {"status": "exploratory", "why": "run before plans existed"})
+        caption += (
+            f" · confirmatory, the planned run of plan '{status['plan']}'"
+            if status["status"] == "confirmatory"
+            else f" · exploratory ({status['why']})"
+        )
 
         def rows(table):
             out = table.reset_index()[
@@ -1847,7 +2021,15 @@ class App:
             source = Source.from_record(project["source"])
             atlas = self.data.data_root / "atlas"
             self.studio = Studio(
-                session, qc, atlas, source, path, project["view"], warnings, self.ibl_alf(source)
+                session,
+                qc,
+                atlas,
+                source,
+                path,
+                project["view"],
+                warnings,
+                self.ibl_alf(source),
+                analysis_log=project.get("analysis_log", []),
             )
             return {"eid": session.eid, "url": "/session", "warnings": warnings}
         if kind == "phy":
@@ -1946,6 +2128,7 @@ _SESSION_ROUTES = {
     "/api/trajectories": ("application/json", "trajectory_json"),
     "/api/recipes": ("application/json", "recipes_json"),
     "/api/recipe": ("application/json", "recipe_run"),
+    "/api/log": ("application/json", "log_json"),
     "/api/trajectories.png": ("image/png", "trajectory_png"),
     "/api/quality.png": ("image/png", "quality_png"),
     "/api/tuning.png": ("image/png", "tuning_png"),
@@ -2118,6 +2301,7 @@ def build_app(argv: list[str]) -> tuple[App, str]:
         project, session, qc, warnings = open_project(args.project)
         source = Source.from_record(project["source"])
         view, path = project["view"], args.project
+        log = project.get("analysis_log", [])
     else:
         if args.phy:
             source = Source(
@@ -2140,6 +2324,7 @@ def build_app(argv: list[str]) -> tuple[App, str]:
         name = {"phy": lambda: Path(source.folder).name, "nwb": lambda: Path(source.file).stem}
         name = name.get(source.kind, lambda: source.eid[:8])()
         path = args.project or _new_project_path(data.data_root / "projects", name)
+        log = []
         session, qc = load_source(source)
         # The same default as opening from the homepage; a project keeps its own.
         task = load_task(source.task)
@@ -2148,7 +2333,9 @@ def build_app(argv: list[str]) -> tuple[App, str]:
         view = {**DEFAULT_VIEW, "trials": trials.to_dict()}
     app = App(data)
     atlas = data.data_root / "atlas"
-    app.studio = Studio(session, qc, atlas, source, path, view, warnings, app.ibl_alf(source))
+    app.studio = Studio(
+        session, qc, atlas, source, path, view, warnings, app.ibl_alf(source), analysis_log=log
+    )
     return app, "/session"
 
 

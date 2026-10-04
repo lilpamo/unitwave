@@ -6,6 +6,115 @@ first.
 
 ---
 
+### 2026-10-03 — Step 9b: the analysis log and held-out plans, built (`studio/analysis_log.py`, `studio/plans.py`, `cli/plan.py`)
+
+**Built as designed** (the entry below), in these places:
+- `studio/analysis_log.py`: entries, keys and the running total;
+- `studio/plans.py`: plans, claims, a session's or a set's status;
+- `cli/plan.py`: writes a plan;
+- `Studio`: logs responsiveness, selectivity, movement locking, connections and
+  decoding;
+- `cli/summarise`: marks a region summary;
+- the page: the top bar's total, and each result's status in the rail and the Recipes
+  panel.
+
+**Details settled while building:**
+- **Decoding's logged parameters:** its target and the units shown, not the page's
+  trial filter. Its trials are the target's own (the task's decoding filters).
+- **Starting decoding from a recipe:** the request names the step, and the server
+  checks the step decodes that target, so a page can't claim a plan with another
+  target.
+- **A region summary that left a session out is exploratory,** saying so: the planned
+  set wasn't run whole. It claims nothing.
+- **Plans are read from `<data_root>/plans/`.** Projects keep their place under
+  `projects/`. Files from before 9b open with an empty log.
+- **The running total counts distinct tests.** A test reused from the page's cache was
+  never re-run, so it isn't logged.
+
+**Checked:**
+- **Tests (hand-built Phy folders):**
+  - a test is written to the project file at once, with no outcome;
+  - a reopened project restores the log, and an identical re-run is a repeat;
+  - a planned recipe step is confirmatory once, then exploratory from another project;
+  - other units, another trial filter, changed files, a run before the plan, or a
+    manual test are exploratory, each with its reason;
+  - an edited plan is refused.
+- **A planned region summary on Steinmetz Richards:** confirmatory once, then
+  exploratory.
+- **In the browser (MC_Maze, a scratch project file):** "Log: 2 tests · 60 hypotheses
+  · all exploratory"; the rail and the panel name each result's status.
+
+### 2026-10-03 — Step 9b design: the analysis log and held-out plans (before building)
+
+**Why:** a label survives correction across the units of one test. It doesn't survive a
+researcher running twenty tests and reporting the one that worked. The log makes that
+number visible, and a plan named in advance is the only way a result is called
+confirmatory.
+
+**Chosen by the user (2026-10-03, in chat):**
+1. **When a test is logged:** at once, written to the project file the moment it runs.
+   The file is created at the first test if it wasn't saved yet. Save project still
+   sets the view.
+2. **What is confirmatory:** a held-out plan naming the sessions, the recipe steps to
+   run on them, and the trial filter, saved with a hash and time before any run. Only
+   the first run of a planned step on a planned session, after the plan was saved, is
+   confirmatory. Everything else, manual tests included, is exploratory.
+3. **Repeats:** logged, counted once. The same test on the same data, units, trials
+   and parameters gives the same numbers, because every null is seeded or exact.
+
+**The log (`analysis_log` in the project file):**
+- **One entry per test run:**
+  - `at`, and `kind` (responsiveness, selectivity, movement_locking, connections or
+    decoding);
+  - `what`, in words;
+  - its parameters: event, split, movement-free, units shown, probe, trial filter,
+    decoding target;
+  - `n_tests`, the size of the family it was corrected over (units, pairs, or decoding
+    comparisons), with its units and trials;
+  - `recipe`: the recipe step that ran it, if any;
+  - `key`: a sha256 over the session fingerprint, the kind, the parameters and the
+    configs' hashes;
+  - `repeat`: true when that key is already in the log;
+  - `status`: exploratory or confirmatory, with the reason or the plan.
+- **Logged only when computed:** a result reused from the page's cache is the same
+  test and isn't logged again. Decoding is logged when it finishes; a run that fails
+  produced no test.
+- **No outcomes:** the project file still holds no results. Opening it recomputes
+  them.
+- **The running total,** in the top bar: distinct tests, and the hypotheses they
+  tested (the sum of their n_tests), with how many are confirmatory.
+- **Every result says its status:** the Recipes panel and the rail's summaries are
+  marked exploratory, or confirmatory under plan X.
+
+**Held-out plans (`<data_root>/plans/<name>.unitwave-plan.json`, written by `python -m
+unitwave.cli.plan`):**
+- **What a plan holds:**
+  - its name, the task, and the sessions: IBL eids, or NWB or Phy files with their
+    sha256;
+  - the recipe steps (e.g. `choice_beyond_stimulus/selective`) and the trial filter;
+  - `saved_at`, and a sha256 over all of it.
+- **The unit set is fixed:** QC-passing units of every probe, as the recipes run by
+  default.
+- **A plan is never edited.** A name already used is refused, and an edited file (hash
+  mismatch) is refused with the reason, so nothing runs as confirmatory under it.
+- **Claims (`<name>.runs.jsonl`, beside the plan, append-only):**
+  - the first planned run of each step on each session writes a claim;
+  - a later run, in any project, finds the claim and is exploratory, saying when the
+    planned run happened.
+- **A run is confirmatory only if all of these hold:**
+  - a recipe step, in a plan that names this session (the file's sha256 matches) and
+    this step;
+  - the plan was saved before the run;
+  - the page's trial filter is the plan's, and its unit set the plan's;
+  - no claim exists yet.
+  Otherwise it is exploratory, and the reason is logged.
+- **Region summaries (recipe 3, step 2):** a `cli.summarise` run is confirmatory when
+  a plan names exactly its sessions and that step, with the same trial filter, saved
+  before the run, and nothing claimed yet. Its manifest and homepage caption say which.
+
+**Not in 9b:** making plans from the page (the command line writes them); per-test
+outcomes in the log.
+
 ### 2026-10-03 — Step 9a: guided recipes (`analysis/recipes.py`, `configs/recipes/`, the Recipes panel)
 
 **What (the user's step 9, its first part):** three recipes, each a question answered

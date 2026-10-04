@@ -20,6 +20,7 @@
   <div class="spacer"></div>
   <button class="btn" id="recipesOpen" aria-expanded="false" aria-controls="recipes" title="Guided analyses: one question, step by step">Recipes</button>
   <div class="project">
+    <span class="note" id="logTotal" title="The analysis log: every test computed in this project is written to the project file at once, with how many hypotheses it tested. Identical re-runs are counted once. A result is confirmatory only as the first run of a planned recipe step on a held-out session (python -m unitwave.cli.plan); everything else is exploratory."></span>
     <span class="note" id="projectStatus"></span>
     <button class="btn" id="save" title="Save the data source, file hashes and these settings (no results)">Save project</button>
     <button class="btn" id="export" title="Write SVG and PDF figures with their numbers to runs/">Export figures</button>
@@ -34,7 +35,7 @@
      each step runs the manual view's own analysis. -->
 <aside class="drawer" id="recipes" hidden aria-label="Recipes">
   <header><h3>Recipes</h3><button class="btn" id="recipesClose" aria-label="Close recipes">Close</button></header>
-  <p class="note">Each step runs the same analysis as the panel on the left, on the units and trials shown. Every result here is exploratory.</p>
+  <p class="note">Each step runs the same analysis as the panel on the left, on the units and trials shown. A result is exploratory unless it is the first run of a step that a held-out plan named in advance (python -m unitwave.cli.plan).</p>
   <div id="recipeList"></div>
 </aside>
 

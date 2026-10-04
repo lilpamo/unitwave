@@ -74,6 +74,7 @@ function renderSourceReport(r) {
 // ---------- data ----------
 async function init() {
   const s = (state.session = await getJSON('/api/session'));
+  renderLog(s.log);
   $('source').textContent = s.source.label;
   renderSourceReport(s.source.report);
   $('source').title = s.eid;
@@ -171,7 +172,19 @@ async function act(button, busy, work) {
   finally { button.disabled = false; }
 }
 
+// The analysis log's running total (step 9b): every test computed in this project.
+function renderLog(t) {
+  const n = (x, one, many) => `${x.toLocaleString()} ${x === 1 ? one : many}`;
+  $('logTotal').textContent = t.n_tests
+    ? `Log: ${n(t.n_tests, 'test', 'tests')} · ${n(t.n_hypotheses, 'hypothesis', 'hypotheses')} · ` +
+      (t.n_confirmatory ? `${t.n_confirmatory} confirmatory` : 'all exploratory')
+    : 'Log: no tests yet';
+}
+async function refreshLog() {
+  try { renderLog((await getJSON('/api/log')).total); } catch { /* the log shows at the next test */ }
+}
 async function loadUnits() {
+  refreshLog();
   const d = await getJSON('/api/units?' + params());
   state.rows = d.units;
   state.tree = d.tree;
@@ -216,9 +229,11 @@ function renderTest(t) {
   $('testSummary').textContent = testText(t);
 }
 const probesText = (t) => (t.probes.length === 1 ? `probe ${t.probes[0]}` : `probes ${t.probes.join(', ')}`);
+// Every result says whether it is exploratory or confirmatory (the analysis log, step 9b).
+const statusText = (t) => (t.status === 'confirmatory' ? `confirmatory: the planned run of plan '${t.plan}'` : 'exploratory');
 function testText(t) {
   return `${t.n_responsive} of ${t.n_tests} units responsive on ${probesText(t)} (${t.n_up} up, ${t.n_down} down) · ` +
-    `${t.n_trials} ${t.movement_free ? 'movement-free ' : ''}trials${t.n_excluded ? `, ${t.n_excluded} without this event excluded` : ''} · ${t.n_shifts.toLocaleString()} shifts each`;
+    `${t.n_trials} ${t.movement_free ? 'movement-free ' : ''}trials${t.n_excluded ? `, ${t.n_excluded} without this event excluded` : ''} · ${t.n_shifts.toLocaleString()} shifts each · ${statusText(t)}`;
 }
 async function runTest() {
   const button = $('runTest');
@@ -262,7 +277,7 @@ function renderLocking(t) {
 }
 function lockText(t) {
   return `${t.n_locked} of ${t.n_tests} units on ${probesText(t)} movement-locked · ${t.n_trials} trials · ` +
-    `null: ${t.null}, ${t.n_null.toLocaleString()} draws, seed ${t.seed}`;
+    `null: ${t.null}, ${t.n_null.toLocaleString()} draws, seed ${t.seed} · ${statusText(t)}`;
 }
 async function runLocking() {
   const button = $('runLock');
@@ -344,11 +359,11 @@ function selText(t) {
   if (t.kind === 'circular') {
     return `${t.n_selective} of ${t.n_tests} units on ${probesText(t)} selective for ${t.condition.toLowerCase()} ` +
       `(${t.n_silent} silent in the window: no index, not selective) · ${t.n_trials} trials · ` +
-      `null: ${t.null}, ${t.n_null.toLocaleString()} draws, seed ${t.seed} · ${t.window} window`;
+      `null: ${t.null}, ${t.n_null.toLocaleString()} draws, seed ${t.seed} · ${t.window} window · ${statusText(t)}`;
   }
   return `${t.n_selective} of ${t.n_tests} units on ${probesText(t)} selective ` +
     `(${t.n_higher_b} higher for ${t.b}, ${t.n_higher_a} for ${t.a}) · ${t.n_a} vs ${t.n_b} trials · ` +
-    `null: ${t.null}, ${t.n_null.toLocaleString()} draws, seed ${t.seed} · ${t.window} window`;
+    `null: ${t.null}, ${t.n_null.toLocaleString()} draws, seed ${t.seed} · ${t.window} window · ${statusText(t)}`;
 }
 async function runSelectivity() {
   const button = $('runSel');
@@ -573,7 +588,8 @@ function renderConnections(t) {
     const on = t.probes.length === 1 ? `probe ${t.probes[0]}` : `probes ${t.probes.join(', ')}`;
     $('connSummary').textContent = `${t.n_connected} putative excitatory connections among ${t.n_units} units on ${on} ` +
       `(${t.n_pairs} pairs, ${t.n_tests} tests)` +
-      (t.n_connected ? ` · ${t.n_connected_close} of them between close units: a sorting artefact can make that` : '');
+      (t.n_connected ? ` · ${t.n_connected_close} of them between close units: a sorting artefact can make that` : '') +
+      ` · ${statusText(t)}`;
   } else {
     $('connSummary').textContent = n > max ? `${n} units shown: narrow to at most ${max} by probe or region to test.`
       : n < 2 ? 'Needs at least 2 units.' : 'Not run for these units.';
@@ -595,9 +611,11 @@ function renderDecodingIntro(d) {
       `test trials, Benjamini–Hochberg at α = ${d.alpha}. Takes minutes.`;
 }
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-async function runDecoding() {
+async function runDecoding(recipe = null) {
   try {
-    const status = await post('/api/decode', { target: $('decTarget').value, query: Object.fromEntries(params()) });
+    const body = { target: $('decTarget').value, query: Object.fromEntries(params()) };
+    if (recipe) body.recipe = recipe;  // a recipe step: it may be the planned run (step 9b)
+    const status = await post('/api/decode', body);
     followDecoding(status);
   } catch (e) {
     $('decSummary').textContent = e.message.replace(/^Cannot do this: /, '');
@@ -619,7 +637,8 @@ async function followDecoding(status) {
   if (status.state === 'error') $('decSummary').textContent = status.error;
   if (status.state === 'done') {
     renderDecoding(status.summary);
-    $('decSummary').textContent = `${status.summary.gate.line} Details in the Population card's Decoding tab.`;
+    $('decSummary').textContent = `${status.summary.gate.line} ${status.summary.status === 'confirmatory' ? 'Confirmatory' : 'Exploratory'}. ` +
+      'Details in the Population card\'s Decoding tab.';
     showPopTab('decoding');
   }
 }
@@ -1037,12 +1056,13 @@ async function runRecipeStep(button) {
     if ('split' in q) state.split = $('split').value = q.split;
     if (d.kind === 'decoding') {
       $('decTarget').value = d.target;
-      await runDecoding();
+      await runDecoding(d.recipe);
       out.textContent = 'Started in the Decoding panel on the left; its verdict line and table appear there and in the Population card.';
       return;
     }
     if (q.event || 'split' in q) await loadUnits();
-    out.innerHTML = esc(recipeResult(d)) + (d.command ? `<code>${esc(d.command)}</code>` : '');
+    const why = d.result?.status === 'exploratory' ? ` (${d.result.why})` : '';
+    out.innerHTML = esc(recipeResult(d) + why) + (d.command ? `<code>${esc(d.command)}</code>` : '');
   } catch (e) {
     out.textContent = e.message.replace(/^Cannot show this: /, '');
   } finally {
@@ -1168,7 +1188,7 @@ $('recipeList').addEventListener('click', (e) => {
   if (b) runRecipeStep(b);
 });
 $('runConn').addEventListener('click', runConnections);
-$('runDec').addEventListener('click', runDecoding);
+$('runDec').addEventListener('click', () => runDecoding());
 $('popTabs').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (b && b.dataset.tab !== state.popTab) showPopTab(b.dataset.tab);

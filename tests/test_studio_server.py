@@ -519,7 +519,7 @@ def test_a_decoding_job_runs_in_the_background_with_progress(tmp_path, monkeypat
         calls.update(eid=eid, target=target, unit_ids=list(unit_ids), manifest=manifest)
         progress("fitting", 3, 10)
         release.wait(5)
-        return SimpleNamespace(summary=lambda: {"target": target, "run": "r1"})
+        return SimpleNamespace(summary=lambda: {"target": target, "run": "r1", "tests": [{}, {}]})
 
     monkeypatch.setattr(server, "decode", fake_decode)
     with pytest.raises(ValueError, match="not a Studio decoding target"):
@@ -532,7 +532,14 @@ def test_a_decoding_job_runs_in_the_background_with_progress(tmp_path, monkeypat
         studio.decode_start({"target": "block", "query": {}}, manifest="m")
     release.set()
     done = _wait(studio, lambda s: s["state"] == "done")
-    assert done["summary"] == {"target": "choice", "run": "r1"}
+    summary = done["summary"]
+    assert {k: summary[k] for k in ("target", "run", "tests")} == {
+        "target": "choice",
+        "run": "r1",
+        "tests": [{}, {}],
+    }
+    assert summary["status"] == "exploratory"  # and logged, with its 2 comparisons (step 9b)
+    assert studio.log_json({})["entries"][0]["n_tests"] == 2
     # The shown units at the moment of the request were decoded.
     assert calls["unit_ids"] == list(studio._select({"all": "1"})) and calls["manifest"] == "m"
 

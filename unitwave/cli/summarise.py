@@ -48,17 +48,19 @@ from unitwave.analysis.summary import (
 )
 from unitwave.analysis.tasks import task_path
 from unitwave.cli.evaluate import REPO, _git, _jsonable, _sha256
-from unitwave.data.load import load_session
+from unitwave.data.load import load_data_config, load_session
 from unitwave.data.manifest import MANIFEST_VERSION
 from unitwave.nwb.intake import layout_path, load_layout
 from unitwave.qc.nwb import load_nwb_qc_config
 from unitwave.qc.spike_times import load_spike_qc_config
 from unitwave.qc.units import load_qc_config
+from unitwave.studio.plans import files_identity, set_status
 from unitwave.studio.project import Source, load_source, qc_config_path
 from unitwave.studio.sets import read_set
 from unitwave.viz.studio_plots import save_vector
 from unitwave.viz.summary_plots import build_region_flatmap, build_region_spread
 
+SUMMARY_STEP = "regions_differ/summary"  # recipe 3's step a plan can name
 CONFIG_FILES = {
     "summary": DEFAULT_CONFIG,
     "qc": REPO / "configs" / "qc.yaml",
@@ -95,6 +97,7 @@ def run(
     runs_dir: Path = REPO / "runs",
     load=None,
     progress=print,
+    plans_dir: Path | None = None,
 ) -> Path:
     """Label every IBL session of a saved set, summarise by region, write the run; its
     folder. load(eid) -> Session (default: the BWM release)."""
@@ -110,7 +113,18 @@ def run(
     }
     configs = {**CONFIG_FILES, "task": task_path(label.task)}
     sessions = {eid: (lambda eid=eid: (load(eid), load_qc_config())) for eid in the_set["eids"]}
-    return _run(record, sessions, label, configs, cfg=cfg, runs_dir=runs_dir, progress=progress)
+    identities = [(eid, None) for eid in the_set["eids"]]  # the release is fixed
+    return _run(
+        record,
+        sessions,
+        label,
+        configs,
+        identities,
+        cfg=cfg,
+        runs_dir=runs_dir,
+        progress=progress,
+        plans_dir=plans_dir,
+    )
 
 
 def run_nwb(
@@ -123,6 +137,7 @@ def run_nwb(
     cfg: SummaryConfig | None = None,
     runs_dir: Path = REPO / "runs",
     progress=print,
+    plans_dir: Path | None = None,
 ) -> Path:
     """Label every NWB file under one layout, summarise by region, write the run; its
     folder. The label's task reads the trials; trial_filter defaults to the filters the
@@ -172,7 +187,18 @@ def run_nwb(
         return lambda: load_source(source)
 
     sessions = {f"nwb:{p}": opener(p) for p in paths}
-    return _run(record, sessions, label, configs, cfg=cfg, runs_dir=runs_dir, progress=progress)
+    identities = [(f"nwb:{p}", files_identity({p.name: hashes[str(p)]})) for p in paths]
+    return _run(
+        record,
+        sessions,
+        label,
+        configs,
+        identities,
+        cfg=cfg,
+        runs_dir=runs_dir,
+        progress=progress,
+        plans_dir=plans_dir,
+    )
 
 
 def _nwb_qc(layout):
@@ -180,10 +206,14 @@ def _nwb_qc(layout):
     return load_spike_qc_config() if layout.quality is None else load_nwb_qc_config(layout.quality)
 
 
-def _run(record, sessions, label, configs, *, cfg, runs_dir, progress) -> Path:
+def _run(
+    record, sessions, label, configs, identities, *, cfg, runs_dir, progress, plans_dir=None
+) -> Path:
     """sessions: eid -> a function returning (Session, unit QC). Each is labelled on the
-    record's trial filter; one that can't be is left out, with why."""
+    record's trial filter; one that can't be is left out, with why. identities: (eid,
+    sha256 of its files) per session, as held-out plans name them (studio.plans)."""
     cfg = cfg or load_summary_config()
+    started = datetime.now(UTC)
     run_id = f"{datetime.now(UTC):%Y%m%dT%H%M%S%fZ}_summary_{label.kind}_{_slug(record['name'])}"
     out = Path(runs_dir) / run_id
     out.mkdir(parents=True)
@@ -239,6 +269,23 @@ def _run(record, sessions, label, configs, *, cfg, runs_dir, progress) -> Path:
         save()
         raise ValueError("no session of the set could be labelled")
     units = pd.concat(tables, ignore_index=True)
+    # Confirmatory only as the first run of a plan naming exactly these sessions and
+    # recipe 3's summary step (step 9b); claimed now that the run has its results.
+    tf = TrialFilter.from_dict(record["trial_filter"], label.definition()).to_dict()
+    manifest["plan_status"] = set_status(
+        plans_dir or load_data_config().data_root / "plans",
+        sessions=identities,
+        step=SUMMARY_STEP,
+        trial_filter=tf,
+        label=(label.kind, label.event),
+        at=started,
+        claim=not manifest["sessions_failed"],
+    )
+    if manifest["sessions_failed"] and manifest["plan_status"]["status"] == "confirmatory":
+        manifest["plan_status"] = {
+            "status": "exploratory",
+            "why": "sessions were left out, so the planned set wasn't run whole",
+        }
     regions, sessions_table = region_summary(units, cfg)
     write_results(out, units, regions, sessions_table)
     manifest.update(

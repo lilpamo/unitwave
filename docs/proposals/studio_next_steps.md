@@ -263,7 +263,7 @@ step, in this order, proven on IBL plus at least one other dataset:
 - **Region summaries:** only for datasets with regions. Sessions are the unit of
   inference, with FDR across regions.
 
-### Step 9. Guided workflow recipes (no AI) — 9a built (2026-10-03); 9b, the analysis log, next
+### Step 9. Guided workflow recipes (no AI) — built (2026-10-03)
 
 As specified in S8 below, with three changes:
 - **Each recipe declares the task features it needs** (events, condition types).
@@ -290,7 +290,19 @@ As specified in S8 below, with three changes:
     and Steinmetz (recipe 2), in tests and in the browser.
   - **Differences from the approved wording:** four small ones, listed at the end of
     the wording file.
-- **9b, the analysis log: next.** Designed in DECISIONS.md first.
+- **9b, the analysis log and held-out plans: built (2026-10-03)** (`docs/DECISIONS.md`,
+  "Step 9b design", then "Step 9b").
+  - **When and what:** every test Studio computes is written to the project file at
+    once: what, when, the hypotheses it tested, the recipe step if any. No outcomes
+    are written.
+  - **Repeats:** an identical re-run is logged and counted once.
+  - **The running total** sits in the top bar.
+  - **Every result says its status.** It is confirmatory only as the first run of a
+    step that a held-out plan (`python -m unitwave.cli.plan`) named in advance, on a
+    session it named. Region summaries over exactly a plan's sessions follow the same
+    rule.
+  - **Choices the user made (2026-10-03):** log at once; confirmatory only by plan
+    (sessions and steps); repeats counted once.
 
 ### Plan only, don't build yet
 
