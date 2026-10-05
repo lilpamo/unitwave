@@ -67,8 +67,9 @@ def test_unit_caption_has_no_region_when_there_is_none(tmp_path):
 
 def test_responsiveness_runs_once_per_event_and_feeds_the_table(tmp_path):
     studio = _studio(tmp_path)
-    # The hand-built session is 3 s long: shrink the null's minimum shift to fit it.
-    studio.response_cfg = ResponseConfig((-0.2, 0.0), (0.0, 0.3), 0.001, 0.5, 0.05)
+    # The hand-built session is 3 s long: shrink the null's minimum shift to fit it, and
+    # don't refuse its two trials as periodic (tests/test_responsiveness_periodic.py).
+    studio.response_cfg = ResponseConfig((-0.2, 0.0), (0.0, 0.3), 0.001, 0.5, 0.05, 0.5, 1.0, 1.0)
     q = {"event": "stim_on", "all": "1"}
     with pytest.raises(ValueError, match="run the responsiveness test"):
         studio.units_json({**q, "responsive": "1"})
@@ -127,7 +128,7 @@ def _two_probe_studio(tmp_path) -> Studio:
     )
     session = dataclasses.replace(session, units=units)
     two = Studio(session, studio.qc, tmp_path / "atlas")
-    two.response_cfg = ResponseConfig((-0.2, 0.0), (0.0, 0.3), 0.001, 0.5, 0.05)
+    two.response_cfg = ResponseConfig((-0.2, 0.0), (0.0, 0.3), 0.001, 0.5, 0.05, 0.5, 1.0, 1.0)
     return two
 
 
@@ -243,7 +244,7 @@ def test_phy_sessions_say_why_there_are_no_movement_controls(tmp_path):
         studio.wheel_png(PLOT)
     with pytest.raises(ValueError, match="firstMovement_times"):
         studio.locking_json({"all": "1"})
-    studio.response_cfg = ResponseConfig((-0.2, 0.0), (0.0, 0.3), 0.001, 0.5, 0.05)
+    studio.response_cfg = ResponseConfig((-0.2, 0.0), (0.0, 0.3), 0.001, 0.5, 0.05, 0.5, 1.0, 1.0)
     with pytest.raises(ValueError, match="firstMovement_times"):
         studio.test_json({"event": "stim_on", "all": "1", "movement_free": "1"})
 

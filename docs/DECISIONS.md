@@ -6,6 +6,57 @@ first.
 
 ---
 
+### 2026-10-05 — Responsiveness refuses periodic and back-to-back presentations (`analysis/responsiveness.py`, `configs/analysis.yaml`)
+
+**The problem** (docs/NEGATIVE_RESULTS.md, 2026-10-02): on Allen flashes, 0 of 430 units
+were labelled responsive, which reads as a finding but is the test's lack of power.
+
+**The first fix failed** (NEGATIVE_RESULTS, 2026-10-05). It dropped the shifts that line
+periodic presentations up with themselves. It was signed off, then withdrawn before
+shipping: on hand-built units that ignore the events, it labelled 4 to 12 of 200 as
+responsive. With strictly periodic events the remaining shifts are only a few distinct
+phases, so the reported p is far too small.
+
+**Decided by the user (2026-10-05): refuse, saying why.** The null itself is unchanged
+and stays calibrated. Both refusals are decided from event times alone.
+- **Periodic presentations:**
+  - **The rule:** a shift's self-overlap is the mean, over events, of the other event
+    onsets within the windows' span (0.5 s) of each shifted event. When more than
+    `max_realigned_fraction` (0.25) of the null's shifts have a self-overlap above
+    `max_self_overlap` (0.5), the test is refused.
+  - **The message:** the presentations are periodic, the null can't separate a
+    response from the stimulus cycle, and a count would not be a finding; compare
+    conditions with selectivity instead.
+- **Back-to-back presentations:**
+  - **The rule:** when more than `max_close_fraction` (0.5) of events have another
+    within the windows' span, the test is refused.
+  - **The message:** each baseline falls in the previous presentation's response.
+
+**Where it lands:**
+
+| Events | Shifts realigned | Verdict |
+|---|---|---|
+| IBL (d23a44ef, 3a3ea015; every event) | 0% (self-overlap ≤ 0.29) | tested, null unchanged |
+| Steinmetz Richards | 0% (≤ 0.39) | tested, unchanged |
+| MC_Maze | about 1% | tested, unchanged |
+| Allen drifting gratings (blocks, 3.003 s) | 15% | tested, unchanged (229 of 447) |
+| Allen flashes (2.002 s) | 50% | refused: periodic |
+| Allen static gratings (0.25 s) | n/a | refused: back to back |
+
+**Effects elsewhere:**
+- **A region summary** leaves such sessions out, with the reason.
+- **Studio** shows the refusal where the count would have been, and the analysis log
+  counts no test.
+- **Tests:**
+  - five Studio mechanics tests use 3-second sessions with two trials. Their hand-built
+    configs set both refusal thresholds to 1.0 (refusals off), with a comment;
+  - one hand-built gratings session now has jittered trial starts, as real trials do;
+  - the refusals and the calibration of the designs that keep the test have their own
+    tests (`tests/test_responsiveness_periodic.py`).
+
+**Not built:** a paired test within presentations, which would give flashes an answer.
+It needs its own calibration and sign-off.
+
 ### 2026-10-03 — Step 9b: the analysis log and held-out plans, built (`studio/analysis_log.py`, `studio/plans.py`, `cli/plan.py`)
 
 **Built as designed** (the entry below), in these places:

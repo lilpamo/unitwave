@@ -304,6 +304,15 @@ As specified in S8 below, with three changes:
   - **Choices the user made (2026-10-03):** log at once; confirmatory only by plan
     (sessions and steps); repeats counted once.
 
+### After step 9: responsiveness on periodic presentations — refused (2026-10-05)
+
+The user's open decision from step 6. A fix that dropped self-aligning shifts failed its
+calibration test (docs/NEGATIVE_RESULTS.md, 2026-10-05), so periodic presentations
+(Allen flashes) and back-to-back ones (static gratings) are refused, saying why. IBL,
+Steinmetz, MC_Maze and drifting gratings are tested as before (docs/DECISIONS.md,
+2026-10-05). A paired test within presentations is the way to give flashes an answer.
+It is not built.
+
 ### Plan only, don't build yet
 
 What each needs is listed under "Not to build yet" below:

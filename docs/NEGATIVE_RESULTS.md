@@ -5,6 +5,56 @@ in this repo. One entry per experiment, newest first.
 
 ---
 
+### 2026-10-05 — Dropping self-aligning shifts makes the periodic shift null invent responses
+
+**What was tried (signed off by the user 2026-10-05, then withdrawn before shipping):** a
+fix for the entry below.
+- **The rule:** a shift whose self-overlap is above 0.5 is no null draw. The
+  self-overlap is the mean, over events, of the other event onsets within 0.5 s (the
+  windows' span) of each shifted event.
+- **Also:** refuse presentations closer together than the windows.
+
+**Hypothesis:** for strictly periodic presentations, the shifts at multiples of the
+period copy the true response into the null. Dropping them would give back the power,
+and the null would stay valid because the shifts are chosen from event times alone.
+
+**What it looked like on real data (prototype only):**
+- **Allen flashes:** 0 → 108 of 430 units responsive.
+- **Drifting gratings:** 229 → 235.
+- **MC_Maze:** 13 → 13.
+- **IBL and Steinmetz:** unchanged; their self-overlap never exceeds 0.29 and 0.39, so
+  no shift was dropped.
+
+**Result: it fails calibration.** 200 hand-built Poisson units ignoring presentations
+every 2 s, 5 seeds:
+- **The proposed null:** 4, 6, 7, 9 and 12 units labelled responsive after BH; 7–14% of
+  p below 0.05; every false discovery at the smallest possible p.
+- **Today's null on the same units:** 0 in every run, about 5% below 0.05.
+- **Other designs** (near-regular MC_Maze-like trials with CV 0.11, drifting-grating-like
+  periodic blocks, IBL-like irregular trials): no false discoveries with either rule.
+
+**Why it failed:**
+- **The draws aren't distinct:** with strictly periodic events, shifts a whole number of
+  periods apart give almost the same statistic. The 57,000 draws are a few distinct
+  phases of one cycle, about (2 − 1) s / 0.5 s of windows.
+- **The reported p is far too small:** when the true value beats them all, which
+  happens a few percent of the time under the null, p is reported as 1/57,711.
+- **Today's null is valid only by accident:** it is calibrated because the shifts at
+  multiples of the period reproduce the true value and tie with it. That same fact
+  removes its power.
+- **No version of this test can give small p-values** for strictly periodic events: the
+  shift null can't separate the response from the stimulus cycle.
+
+**Consequence:** the 108 flash units are not a result. The code was reverted before
+commit; today's null (calibrated) is unchanged. The calibration test is kept for the
+next attempt.
+
+**Do not retry unless:** the test isn't a shift null.
+- **A paired test within presentations:** each presentation's response against its own
+  baseline, with presentations as the samples, and its own calibration on hand-built
+  periodic units, bursting units included.
+- **Or refuse:** decline the test on strictly periodic presentations, saying why.
+
 ### 2026-10-02 — Responsiveness's shift null has almost no power for periodic presentations
 
 **What was tried:** Studio's responsiveness test on the Allen Visual Coding session

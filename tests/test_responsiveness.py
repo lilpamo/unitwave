@@ -17,6 +17,9 @@ CFG = ResponseConfig(
     grid_s=0.001,
     min_shift_s=10.0,
     alpha=0.05,
+    max_self_overlap=0.5,
+    max_realigned_fraction=0.25,
+    max_close_fraction=0.5,
 )
 # Irregular event times, so no shift other than 0 lines all events up again.
 EVENTS = np.array([1.0, 3.7, 7.1, 9.4, 14.2, 17.9, 21.3, 26.0, 29.8, 33.1])

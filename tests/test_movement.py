@@ -17,7 +17,7 @@ from unitwave.analysis.responsiveness import ResponseConfig, responsiveness
 from unitwave.data.session import TimeSeries
 
 CFG = MovementConfig(pre_window=(-0.2, 0.0), post_window=(0.0, 0.2), n_permutations=2000, seed=0)
-RESP = ResponseConfig((-0.2, 0.0), (0.0, 0.3), 0.005, 10.0, 0.05)
+RESP = ResponseConfig((-0.2, 0.0), (0.0, 0.3), 0.005, 10.0, 0.05, 0.5, 0.25, 0.5)
 
 
 def test_default_config():

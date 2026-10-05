@@ -11,6 +11,16 @@ times and window edges sit on a `grid_s` grid, and every grid shift at least
 at once by FFT cross-correlation, so the test is deterministic: no random draws, no
 seed.
 
+Refused presentations (the user's decision, 2026-10-05; docs/NEGATIVE_RESULTS.md):
+- **Periodic:** when more than `max_realigned_fraction` of the null's shifts line the
+  events up with themselves (self-overlap above `max_self_overlap`: other event onsets
+  within the windows' span of each shifted event, on average), the null can't separate
+  a response from the stimulus cycle. Keeping those shifts leaves it without power;
+  dropping them leaves too few distinct draws and it invents responses. Refused.
+- **Back to back:** when more than `max_close_fraction` of events have another within the
+  windows' span, each baseline falls in the previous response. Refused.
+Both are decided from event times alone; the null itself is unchanged.
+
 p = (1 + #{allowed shifts with |statistic| >= |observed|}) / (1 + #allowed shifts)
 
 Benjamini-Hochberg q-values are computed across the units tested in one call; a unit
@@ -28,7 +38,16 @@ from scipy import fft
 from scipy.stats import false_discovery_control
 
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "analysis.yaml"
-_KEYS = {"baseline_window", "response_window", "grid_s", "min_shift_s", "alpha"}
+_KEYS = {
+    "baseline_window",
+    "response_window",
+    "grid_s",
+    "min_shift_s",
+    "alpha",
+    "max_self_overlap",
+    "max_realigned_fraction",
+    "max_close_fraction",
+}
 _CHUNK = 8  # units per FFT batch
 
 
@@ -39,6 +58,9 @@ class ResponseConfig:
     grid_s: float
     min_shift_s: float
     alpha: float
+    max_self_overlap: float
+    max_realigned_fraction: float
+    max_close_fraction: float
 
 
 def load_response_config(path: str | os.PathLike = DEFAULT_CONFIG) -> ResponseConfig:
@@ -52,6 +74,9 @@ def load_response_config(path: str | os.PathLike = DEFAULT_CONFIG) -> ResponseCo
         grid_s=float(raw["grid_s"]),
         min_shift_s=float(raw["min_shift_s"]),
         alpha=float(raw["alpha"]),
+        max_self_overlap=float(raw["max_self_overlap"]),
+        max_realigned_fraction=float(raw["max_realigned_fraction"]),
+        max_close_fraction=float(raw["max_close_fraction"]),
     )
 
 
@@ -105,13 +130,48 @@ def _circle(events: np.ndarray, cfg: ResponseConfig) -> _Circle:
         for offset in range(start, stop):
             np.add.at(kernel, bins + offset, weight)
     shift = np.arange(n_grid)
+    allowed = np.minimum(shift, n_grid - shift) >= min_shift
+    _refuse_periodic(bins, n_grid, hi - lo, allowed, cfg)
     return _Circle(
         c0=c0,
         n_grid=n_grid,
         bins=bins,
         kernel_fft=np.conj(fft.rfft(kernel)),
-        allowed=np.minimum(shift, n_grid - shift) >= min_shift,
+        allowed=allowed,
     )
+
+
+def _refuse_periodic(bins: np.ndarray, n_grid: int, span: int, allowed, cfg) -> None:
+    """Refuse presentations the shift null can't test: back to back (closer than the
+    windows' `span` grid steps), or periodic (too many shifts line them up again)."""
+    gaps = np.diff(np.sort(bins))
+    if not gaps.size:
+        return
+    apart = f"{np.median(gaps) * cfg.grid_s:.3g} s apart"
+    nearest = np.minimum(np.r_[gaps, np.inf], np.r_[np.inf, gaps])
+    if np.mean(nearest <= span) > cfg.max_close_fraction:
+        raise ValueError(
+            f"the presentations come {apart}, closer than the test's windows "
+            f"({cfg.baseline_window[0]:g} to {cfg.response_window[1]:g} s around each): each "
+            "baseline falls in the previous presentation's response, so response can't be "
+            "compared with baseline. Compare conditions with the selectivity test instead"
+        )
+    events = np.zeros(n_grid)
+    np.add.at(events, bins, 1.0)
+    box = np.zeros(n_grid)
+    box[: span + 1] = 1.0
+    box[n_grid - span :] = 1.0
+    ef = fft.rfft(events)
+    near = fft.irfft(ef * fft.rfft(box), n=n_grid)  # onsets within the span of each step
+    overlap = fft.irfft(np.conj(ef) * fft.rfft(near), n=n_grid) / bins.size  # (n_grid,)
+    realigned = float(np.mean(overlap[allowed] > cfg.max_self_overlap))
+    if realigned > cfg.max_realigned_fraction:
+        raise ValueError(
+            f"the presentations are periodic (about {apart}): {realigned:.0%} of the null's "
+            "shifts line them up with themselves, so shifting the spike train can't separate "
+            "a response from the stimulus cycle, and a count here would not be a finding "
+            "(docs/NEGATIVE_RESULTS.md). Compare conditions with the selectivity test instead"
+        )
 
 
 def _counts(spikes, unit_ids, circle: _Circle, grid_s: float) -> np.ndarray:

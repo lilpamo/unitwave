@@ -12,7 +12,7 @@ from unitwave.analysis.responsiveness import ResponseConfig
 from unitwave.analysis.tasks import task_from_dict
 from unitwave.analysis.tuning import SelectivityConfig, circular_index, circular_selectivity
 
-WINDOWS = ResponseConfig((-0.2, 0.0), (0.0, 0.3), 0.001, 0.5, 0.05)
+WINDOWS = ResponseConfig((-0.2, 0.0), (0.0, 0.3), 0.001, 0.5, 0.05, 0.5, 0.25, 0.5)
 SEL = SelectivityConfig(n_permutations=2000, n_pseudo_sessions=10, seed=0, min_trials=5)
 TASK = {
     "name": "gratings_test",

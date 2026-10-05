@@ -57,6 +57,11 @@ def _gratings_session():
     from test_circular_selectivity import _session
 
     trials, _ = _session(np.random.default_rng(1))
+    # Jittered starts, as real trials are: strictly periodic presentations are refused
+    # by the responsiveness test (tests/test_responsiveness_periodic.py).
+    jitter = np.random.default_rng(3).uniform(0.0, 1.0, len(trials))
+    trials = trials.assign(intervals_0=trials["intervals_0"] + np.cumsum(jitter))
+    trials = trials.assign(intervals_1=trials["intervals_0"] + 2.0)
     directions = trials["orientation"].fillna(0.0).to_numpy()
     starts = trials["intervals_0"].to_numpy()
 
@@ -75,7 +80,7 @@ def _gratings_session():
     units = pd.DataFrame(
         {"probe_name": "p0", "acronym": ["VISp", "CA1", "VISp"]}, index=list(spikes)
     )
-    session = hand_built(spikes, 241.0, units)
+    session = hand_built(spikes, float(trials["intervals_1"].max()) + 1.0, units)
     return session.__class__(**{**session.__dict__, "trials": trials})
 
 

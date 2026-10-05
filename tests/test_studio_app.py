@@ -105,7 +105,9 @@ def test_opening_is_a_guarded_post_and_switching_resets_state(tmp_path):
             "blocks": [],
             "outcomes": [1.0],
         }
-        first.response_cfg = ResponseConfig((-0.2, 0.0), (0.0, 0.3), 0.001, 0.5, 0.05)
+        first.response_cfg = ResponseConfig(
+            (-0.2, 0.0), (0.0, 0.3), 0.001, 0.5, 0.05, 0.5, 1.0, 1.0
+        )
         first.test_json({"event": "stim_on", "all": "1"})
         assert first._tests
         assert post({"Content-Type": "application/json"}) == 200
@@ -117,7 +119,7 @@ def test_opening_is_a_guarded_post_and_switching_resets_state(tmp_path):
 def test_a_result_under_one_trial_filter_is_never_shown_under_another(tmp_path):
     session, _ = _session(tmp_path)
     studio = Studio(session, QC, tmp_path / "atlas")
-    studio.response_cfg = ResponseConfig((-0.2, 0.0), (0.0, 0.3), 0.001, 0.5, 0.05)
+    studio.response_cfg = ResponseConfig((-0.2, 0.0), (0.0, 0.3), 0.001, 0.5, 0.05, 0.5, 1.0, 1.0)
     rewards = {"event": "stim_on", "all": "1", "tf": json.dumps({"outcomes": [1.0]})}
     everything = {"event": "stim_on", "all": "1"}
     summary = studio.test_json(rewards)

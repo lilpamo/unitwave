@@ -89,7 +89,7 @@ def test_sidecars_equal_the_engine_output(tmp_path):
 
 def test_a_responsiveness_result_is_exported_with_its_config(tmp_path):
     studio = _studio(tmp_path)
-    studio.response_cfg = ResponseConfig((-0.2, 0.0), (0.0, 0.3), 0.001, 0.5, 0.05)
+    studio.response_cfg = ResponseConfig((-0.2, 0.0), (0.0, 0.3), 0.001, 0.5, 0.05, 0.5, 1.0, 1.0)
     studio.test_json({"event": "stim_on", "all": "1"})
     out = export_view(studio, VIEW, tmp_path / "runs")
     table = pd.read_csv(out / "responsiveness.csv")
