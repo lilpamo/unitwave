@@ -6,6 +6,41 @@ first.
 
 ---
 
+### 2026-10-05 — Homepage redesign, and the homepage layout the session redesign broke (`studio/home.html`, `static/home.css`, `static/home.js`)
+
+**A regression fixed first:** the session page redesign (3272f83, already pushed) removed
+the shared `.shell` and `.rail` styles from app.css. The homepage still used them, so its
+filter rail spanned the page and everything stacked under it. I hadn't checked the
+homepage after that change. The homepage's frame now lives in home.css, which only the
+homepage loads.
+
+**The redesign, as proposed to the user (2026-10-05):**
+- **Two views in the top bar:**
+  - **Choose data:** the release's catalogue, and your own data.
+  - **Across sessions:** region summaries, full width. The catalogue's filters are hidden
+    there, since summaries run over saved sets.
+- **Choose data:**
+  - **Filters:** stay on the left.
+  - **Matching sessions,** the widest column, now leads each row with its Open button and
+    cache dot, so the button is never scrolled out of view. Rows are compact.
+  - **Above the table:** a Trial filters chip (its summary, e.g. "BWM inclusion · no-go
+    excluded", opening the controls) and saving the ticked sessions as a set.
+  - **Beside the table:** where the matching probes are, and one "Open your own data"
+    card with tabs: Recent projects, NWB file, Phy folder, Session sets.
+- **A smaller header:** the brand lockup is 56 px tall, beside the catalogue's counts.
+- **Narrower screens:**
+  - **Under 1250 px:** the side cards move under the table.
+  - **Under 860 px:** one column, with the region tree capped at 320 px so the session
+    list is about a screen down, not 8,000 px.
+- **Remembered in this browser:** the view and the tab shown.
+
+**Not changed:** every id, request and number; the brand files the page uses.
+
+**Checked in the browser:**
+- **Both views at 1440 px,** and the NWB tab;
+- **Opening:** d23a44ef opens from its row;
+- **820 px:** no sideways scroll.
+
 ### 2026-10-05 — Session page redesign: workspaces, a context bar, and Explore in three columns (`studio/index.html`, `static/app.css`, `static/app.js`)
 
 **Why (the user, 2026-10-05):** "the app works well, but it doesn't make sense in terms

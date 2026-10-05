@@ -326,17 +326,38 @@ Split like step 8.
 - **Not built:** region summaries across Phy folders (`cli.summarise` reads IBL sets
   and NWB files).
 
-### Layout redesign — session page built (2026-10-05); homepage next
+### Layout redesign — built (2026-10-05)
 
 Asked by the user: the layout should follow how a neuroscientist reads a session.
 - **The session page has four workspaces** (Explore, Population, Statistics, Recipes)
   under a context bar of chips. Explore shows where, which units, and the selected
   unit in three columns. Up and down arrows step through units (docs/DECISIONS.md,
   "Session page redesign").
-- **The homepage, next:**
-  - the 3-D map and the session list side by side;
-  - one Open data card with tabs (IBL release, NWB file, Phy folder, recent projects);
-  - region summaries in their own Across sessions view.
+- **The homepage: built.** Two views, Choose data and Across sessions. The session
+  list (Open first in each row) sits beside the probe map and an "Open your own data"
+  card with tabs (docs/DECISIONS.md, "Homepage redesign").
+
+### Next, chosen by the user (2026-10-05)
+
+1. **A Trials workspace:**
+   - a full-width tab for reading single trials;
+   - a strip of every trial along the top (outcome, reaction time, kept or filtered) to
+     jump through them;
+   - the population raster large below, with events and behaviour;
+   - it opens on the first kept trial.
+   - **Needs** one new endpoint, a per-trial list for the strip. The page only draws it.
+2. **Own data, complete:**
+   - **Multi-probe sessions:** several Phy folders opened as one session, each probe
+     with its own sync pulses and channel locations.
+   - **Rig behaviour:** wheel, licks, pupil and pose as time-series files, moved onto the
+     probe's clock by the same fit, so movement controls and behaviour traces work on a
+     lab's own recordings.
+   - **Region summaries** across Phy sessions.
+
+**Considered and left for later:**
+- a results and methods export from the analysis log;
+- encoding models (leave-one-variable-out, against a shuffle null);
+- the installer.
 
 ### Plan only, don't build yet
 

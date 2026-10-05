@@ -14,9 +14,14 @@
 </script>
 </head>
 <body>
+<!-- Homepage (redesign, 2026-10-05): choose data from the release's catalogue (filters on
+     the left, the matching sessions beside where their probes are), or open your own
+     data; region summaries across sessions have their own view. Ids are unchanged. -->
 <header class="topbar">
   <div class="brand"><img src="/static/brand/unitwave-app-icon-flat.svg" alt="">UnitWave <span>Studio</span></div>
-  <div class="source">Choose data</div>
+  <div class="seg workspaces" id="views" role="tablist" aria-label="Homepage view">
+    <button data-view="choose" role="tab" aria-pressed="true">Choose data</button><button data-view="across" role="tab" aria-pressed="false">Across sessions</button>
+  </div>
   <div class="spacer"></div>
   <a class="btn" id="backToSession" href="/session" hidden>Back to the open session</a>
   <div class="seg" id="theme" role="group" aria-label="Theme">
@@ -50,7 +55,9 @@
   </aside>
 
   <main>
-    <section class="card counts hero">
+    <!-- Choose data: the catalogue's sessions beside their probes, and your own data. -->
+    <div class="view" id="view-choose">
+      <section class="card counts hero">
       <div class="lockup">
         <img class="only-light" src="/static/brand/unitwave-navbar-light.svg" alt="UnitWave Studio: neural data, from signals to insight" width="732" height="172">
         <img class="only-dark" src="/static/brand/unitwave-navbar-dark.svg" alt="UnitWave Studio: neural data, from signals to insight" width="732" height="172">
@@ -59,17 +66,56 @@
         <div class="big" id="counts">Loading the session catalog…</div>
         <p class="note" id="unitsNote"></p>
       </div>
-    </section>
-
-    <div class="homegrid">
-      <section class="card">
-        <header><h3>Where the matching probes are</h3><span class="meta" id="overviewMeta"></span></header>
-        <div class="overview" id="overview"><div class="tip" id="overviewTip" hidden></div></div>
-        <div class="legend" id="labLegend"></div>
       </section>
-      <section class="card entry">
-        <header><h3>Other ways in</h3></header>
-        <h4>Open a Phy folder</h4>
+
+      <div class="choosegrid">
+        <section class="card area-sessions">
+          <header><h3>Matching sessions</h3><span class="meta">click a column to sort · ● in local cache (opens in seconds)</span></header>
+          <div class="sessionbar">
+            <details class="pick">
+              <summary class="chip"><span class="k">Trial filters</span> <span id="tfText">…</span></summary>
+              <div class="pop wide">
+                <p class="note">Applied to every analysis in the session you open; excluded trials are counted, never dropped silently.</p>
+                <div class="trialfilters">
+        <label class="check"><input type="checkbox" id="tfInclude"> BWM trial inclusion only (reaction time 0.08–2 s on d23a44ef)</label>
+        <label class="check"><input type="checkbox" id="tfNogo"> Exclude no-go trials</label>
+        <div><span class="lbl">Contrasts</span> <span class="checks" id="tfContrasts"></span></div>
+        <div><span class="lbl">Blocks</span> <span class="checks" id="tfBlocks"></span></div>
+        <div><span class="lbl">Outcomes</span> <span class="checks" id="tfOutcomes"></span></div>
+      </div>
+              </div>
+            </details>
+            <div class="inline sets"><input id="setName" placeholder="name for the ticked sessions"><button class="btn" id="setSave">Save as a set</button></div>
+          </div>
+          <p class="note" id="setMsg">Tick sessions to save them as a set, for a region summary across them.</p>
+          <div class="table"><table>
+            <thead><tr id="heads"></tr></thead>
+            <tbody id="rows"></tbody>
+          </table></div>
+        </section>
+
+        <div class="side">
+          <section class="card">
+            <header><h3>Where the matching probes are</h3><span class="meta" id="overviewMeta"></span></header>
+            <div class="overview" id="overview"><div class="tip" id="overviewTip" hidden></div></div>
+            <div class="legend" id="labLegend"></div>
+          </section>
+          <section class="card entry">
+            <header><h3>Open your own data</h3></header>
+            <div class="seg tabs" id="entryTabs" role="tablist" aria-label="Open your own data">
+              <button data-tab="projects" role="tab" aria-pressed="true">Recent projects</button><button data-tab="nwb" role="tab" aria-pressed="false">NWB file</button><button data-tab="phy" role="tab" aria-pressed="false">Phy folder</button><button data-tab="sets" role="tab" aria-pressed="false">Session sets</button>
+            </div>
+            <div class="tabpane" id="tab-projects">
+              <div class="list" id="projects"></div>
+            </div>
+            <div class="tabpane" id="tab-nwb" hidden>
+        <p class="note" id="nwbRoot"></p>
+        <div class="inline"><input id="nwbPath" list="nwbChoices" placeholder="file under the root, e.g. 000017/sub-Richards/…nwb" autocomplete="off"><datalist id="nwbChoices"></datalist><button class="btn" id="nwbOpen">Open</button></div>
+        <div class="inline"><label for="nwbLayout">Layout</label><select id="nwbLayout"></select></div>
+        <div class="inline"><label for="nwbTask">Task</label><select id="nwbTask"></select></div>
+        <p class="note">The layout declares what the dataset's files hold (quality column, regions, behaviour); without one, the file is read generically. Anything the file holds outside what Studio reads is listed on the session page, with the reason.</p>
+            </div>
+            <div class="tabpane" id="tab-phy" hidden>
         <p class="note" id="phyRoot"></p>
         <div class="inline"><input id="phyPath" list="phyChoices" placeholder="folder under the root, e.g. mouse1/probe00" autocomplete="off"><datalist id="phyChoices"></datalist><button class="btn" id="phyOpen">Open</button></div>
         <div class="inline"><label for="phyTask">Task</label><select id="phyTask"></select><input id="phyTaskFile" placeholder="or a task definition file (.yaml)" autocomplete="off"></div>
@@ -82,52 +128,31 @@
         <div class="inline"><label for="phyLocations">Channel locations</label><input id="phyLocations" placeholder="optional: e.g. mouse1/probe00/channel_locations.json" autocomplete="off"></div>
         <p class="note">From histology alignment: the IBL alignment GUI's channel_locations.json, or a CSV of channel, ccf_ap_um, ccf_dv_um, ccf_ml_um and acronym. Each unit takes its peak channel's region and position, so the region tree and the brain view work.</p>
         <p class="note" id="phyMsg"></p>
-        <h4>Open an NWB file</h4>
-        <p class="note" id="nwbRoot"></p>
-        <div class="inline"><input id="nwbPath" list="nwbChoices" placeholder="file under the root, e.g. 000017/sub-Richards/…nwb" autocomplete="off"><datalist id="nwbChoices"></datalist><button class="btn" id="nwbOpen">Open</button></div>
-        <div class="inline"><label for="nwbLayout">Layout</label><select id="nwbLayout"></select></div>
-        <div class="inline"><label for="nwbTask">Task</label><select id="nwbTask"></select></div>
-        <p class="note">The layout declares what the dataset's files hold (quality column, regions, behaviour); without one, the file is read generically. Anything the file holds outside what Studio reads is listed on the session page, with the reason.</p>
-        <h4>Recent projects</h4>
-        <div class="list" id="projects"></div>
-        <h4>Session sets</h4>
-        <div class="inline"><select id="setList"><option value="">Choose a saved set</option></select><button class="btn" id="setOpen">Load</button></div>
-        <div class="inline"><input id="setName" placeholder="name for the selected sessions"><button class="btn" id="setSave">Save selected</button></div>
-        <p class="note" id="setMsg">Tick sessions in the table below, then save them as a set.</p>
-      </section>
+            </div>
+            <div class="tabpane" id="tab-sets" hidden>
+              <div class="inline"><select id="setList"><option value="">Choose a saved set</option></select><button class="btn" id="setOpen">Load</button></div>
+              <p class="note">Loading a set brings back its session and trial filters; its sessions are ticked in the table.</p>
+            </div>
+          </section>
+        </div>
+      </div>
     </div>
 
-    <section class="card">
-      <header><h3>Trial filters</h3><span class="meta">applied to every analysis in the session you open; excluded trials are counted, never dropped silently</span></header>
-      <div class="trialfilters">
-        <label class="check"><input type="checkbox" id="tfInclude"> BWM trial inclusion only (reaction time 0.08–2 s on d23a44ef)</label>
-        <label class="check"><input type="checkbox" id="tfNogo"> Exclude no-go trials</label>
-        <div><span class="lbl">Contrasts</span> <span class="checks" id="tfContrasts"></span></div>
-        <div><span class="lbl">Blocks</span> <span class="checks" id="tfBlocks"></span></div>
-        <div><span class="lbl">Outcomes</span> <span class="checks" id="tfOutcomes"></span></div>
-      </div>
-    </section>
-
-    <section class="card area-sessions">
-      <header><h3>Matching sessions</h3><span class="meta">click a column to sort · ● in local cache (opens in seconds)</span></header>
-      <div class="table"><table>
-        <thead><tr id="heads"></tr></thead>
-        <tbody id="rows"></tbody>
-      </table></div>
-    </section>
-
-    <section class="card summaries">
-      <header><h3>Region summaries</h3><span class="meta" id="summaryMeta"></span></header>
-      <p class="note" id="summaryHow"></p>
-      <label class="field">Run <select id="summaryRun"><option value="">None yet</option></select></label>
-      <p class="caption" id="summaryCaption"></p>
-      <p class="note" id="summaryClaims"></p>
-      <div class="summaryfigs">
-        <img id="summaryMap" alt="Swanson flatmap: each tested region's labelled fraction minus the fraction expected from its sessions" hidden>
-        <img id="summarySpread" alt="Each session's labelled fraction in each tested region minus in its other units" hidden>
-      </div>
-      <p class="err" id="summaryErr"></p>
-    </section>
+    <!-- Across sessions: region summaries, run on the command line over a saved set. -->
+    <div class="view" id="view-across" hidden>
+      <section class="card summaries">
+        <header><h3>Region summaries</h3><span class="meta" id="summaryMeta"></span></header>
+        <p class="note" id="summaryHow"></p>
+        <label class="field">Run <select id="summaryRun"><option value="">None yet</option></select></label>
+        <p class="caption" id="summaryCaption"></p>
+        <p class="note" id="summaryClaims"></p>
+        <div class="summaryfigs">
+          <img id="summaryMap" alt="Swanson flatmap: each tested region's labelled fraction minus the fraction expected from its sessions" hidden>
+          <img id="summarySpread" alt="Each session's labelled fraction in each tested region minus in its other units" hidden>
+        </div>
+        <p class="err" id="summaryErr"></p>
+      </section>
+    </div>
   </main>
 </div>
 

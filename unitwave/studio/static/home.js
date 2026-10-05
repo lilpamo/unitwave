@@ -58,6 +58,37 @@ function trialFilter() {
   };
 }
 
+// The trial filters' chip says what the session you open will use.
+function renderTfText() {
+  const t = trialFilter(), parts = [];
+  if (t.bwm_include) parts.push('BWM inclusion');
+  if (t.exclude_nogo) parts.push('no-go excluded');
+  for (const [id, name] of [['tfContrasts', 'contrasts'], ['tfBlocks', 'blocks'], ['tfOutcomes', 'outcomes']]) {
+    const all = $(id).querySelectorAll('input').length, on = $(id).querySelectorAll('input:checked').length;
+    if (all && on < all) parts.push(`${on} of ${all} ${name}`);
+  }
+  $('tfText').textContent = parts.length ? parts.join(' · ') : 'every trial';
+}
+
+// ---------- views and tabs (redesign) ----------
+// Remembered in this browser only.
+function remember(key, value) { try { localStorage.setItem(key, value); } catch { /* storage may be unavailable */ } }
+function recall(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } }
+function showView(view) {
+  if (!['choose', 'across'].includes(view)) view = 'choose';
+  for (const v of ['choose', 'across']) $(`view-${v}`).hidden = v !== view;
+  for (const b of $('views').querySelectorAll('button')) b.setAttribute('aria-pressed', b.dataset.view === view);
+  // The catalogue's filters choose sessions; summaries are run over saved sets instead.
+  document.querySelector('.shell').classList.toggle('across', view === 'across');
+  remember('studio-home-view', view);
+}
+function showEntryTab(tab) {
+  if (!['projects', 'nwb', 'phy', 'sets'].includes(tab)) tab = 'projects';
+  for (const t of ['projects', 'nwb', 'phy', 'sets']) $(`tab-${t}`).hidden = t !== tab;
+  for (const b of $('entryTabs').querySelectorAll('button')) b.setAttribute('aria-pressed', b.dataset.tab === tab);
+  remember('studio-home-entry', tab);
+}
+
 // ---------- load and draw ----------
 async function refresh() {
   const seq = ++state.seq;
@@ -139,8 +170,9 @@ function setup(d) {
   boxes('tfContrasts', lv.contrasts, t.contrasts, (v) => `${v * 100}%`);
   boxes('tfBlocks', lv.blocks, t.blocks, (v) => `p(left) ${v}`);
   boxes('tfOutcomes', lv.outcomes, t.outcomes, (v) => (v < 0 ? 'error' : 'reward'));
-  $('heads').innerHTML = '<th class="pick" title="Select for a session set"></th>' +
-    COLUMNS.map(([k, label, cls]) => `<th class="sortable ${cls || ''}" data-k="${k}">${label}</th>`).join('') + '<th></th><th></th>';
+  renderTfText();
+  $('heads').innerHTML = '<th class="pick" title="Select for a session set"></th><th></th><th title="In the local cache: opens in seconds">●</th>' +
+    COLUMNS.map(([k, label, cls]) => `<th class="sortable ${cls || ''}" data-k="${k}">${label}</th>`).join('');
 }
 
 function drawTree(tree) {
@@ -158,11 +190,14 @@ function drawTable(rows) {
     if (th.dataset.k === state.sort) th.setAttribute('aria-sort', state.desc ? 'descending' : 'ascending');
     else th.removeAttribute('aria-sort');
   }
+  // The Open button leads each row, beside its cache dot, so it is never scrolled out of
+  // view in a narrow column.
   $('rows').innerHTML = rows.map((r) => `<tr data-eid="${esc(r.eid)}">` +
     `<td class="pick"><input type="checkbox" data-pick="${esc(r.eid)}" ${state.selected.has(r.eid) ? 'checked' : ''}></td>` +
-    COLUMNS.map(([k, , cls]) => `<td class="${cls || ''}" ${k === 'n_regions' ? `title="${esc(r.regions.join(', '))}"` : ''}>${esc(r[k])}</td>`).join('') +
+    `<td class="open-cell"><button class="btn sm" data-open="${esc(r.eid)}">Open</button></td>` +
     `<td title="${r.cached ? 'in the local cache' : 'loads from the release'}">${r.cached ? '<span class="dot">●</span>' : ''}</td>` +
-    `<td class="open-cell"><button class="btn" data-open="${esc(r.eid)}">Open</button></td></tr>`).join('');
+    COLUMNS.map(([k, , cls]) => `<td class="${cls || ''}" ${k === 'n_regions' ? `title="${esc(r.regions.join(', '))}"` : ''}>${esc(r[k])}</td>`).join('') +
+    '</tr>').join('');
 }
 
 // ---------- opening data ----------
@@ -228,6 +263,7 @@ function applySet(set) {
     for (const i of $(id).querySelectorAll('input')) i.checked = !(t[key] || []).length || t[key].includes(+i.value);
   }
   state.selected = new Set(set.eids);
+  renderTfText();
 }
 
 // ---------- wiring ----------
@@ -331,6 +367,18 @@ async function showSummary() {
 }
 $('summaryRun').addEventListener('change', showSummary);
 $('setList').addEventListener('change', summaryHow);
+$('views').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) showView(b.dataset.view); });
+$('entryTabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) showEntryTab(b.dataset.tab); });
+document.querySelector('.trialfilters').addEventListener('change', renderTfText);
+// The trial filters' chip: a click outside or Escape closes it.
+document.addEventListener('click', (e) => {
+  for (const d of document.querySelectorAll('details.pick[open]')) if (!d.contains(e.target)) d.open = false;
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') for (const d of document.querySelectorAll('details.pick[open]')) d.open = false;
+});
+showView(recall('studio-home-view', 'choose'));
+showEntryTab(recall('studio-home-entry', 'projects'));
 
 refresh();
 completePhy();
