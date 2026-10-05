@@ -6,6 +6,56 @@ first.
 
 ---
 
+### 2026-10-05 — Step 13a: clock sync for Phy folders (`data/sync.py`, `configs/sync.yaml`)
+
+**What (plan step 13, its first part):** a Phy folder's events can be on another clock
+than its spikes (the NIDQ board's, a behaviour computer's). They are moved onto the
+probe's clock from the same sync pulses recorded on both. This replaces step 1's only
+rule, that events must already be on the probe's clock; without pulse files that rule
+still holds.
+
+**Chosen by the user (2026-10-05, in chat):**
+- **Files read:** CatGT edge files (one time per line) and IBL's
+  `_spikeglx_sync.times*.npy`, using the rising fronts of the sync channel. The channel
+  is the file's only one, or the `syncNiChan` of a `.nidq.meta` beside it, or named;
+  otherwise refused.
+- **The fit:** a line, offset plus drift, from the events' clock to the probe's.
+  Refused when any pulse is more than 1 ms off it; the offset, the drift and the
+  largest and RMS residuals are always reported.
+- **Different pulse counts:** refused, giving both counts. Which pulse is which can't be
+  guessed for a regular square wave.
+- **The download:** IBL's d23a44ef sync files, 60.9 MB into the existing ONE cache.
+
+**Mine, flagged:** event times more than 10 s outside the pulses are refused
+(`max_outside_s`), because the line isn't checked there.
+
+**Where it applies:**
+- **The loader** moves the task's time columns only; conditions such as contrasts are
+  never touched.
+- **Opening:** the homepage's Phy section has two optional pulse fields, kept under the
+  Phy root like the folder. The command line has `--sync-probe` and `--sync-events`.
+- **The project** records both files' sha256 (IBL's with their channels and
+  polarities), so a changed pulse file is reported on reopening. Older projects have
+  none and open as before.
+- **The page** shows the fit under "What this file supports", or says the events are
+  taken to be on the probe's clock.
+
+**Proven:**
+- **Planted values:** an offset and drift are recovered from simulated jittered pulses
+  (within 0.01 ms and 0.05 ppm). A 3 ms jump is refused, and so are counts that differ
+  by one.
+- **On d23a44ef:** probe00's 3,669 pulses against the NIDQ's (channel 3, from its
+  meta file):
+  - **The fit:** offset 0.002 ms, drift 10.1 ppm, largest residual 0.082 ms (RMS
+    0.028 ms).
+  - **Against IBL's own alignment** (its probe00 map, every 20 s): within 0.073 ms at
+    all 183 points inside the pulses. The test asserts within 0.1 ms.
+- **The browser:** a scratch Phy folder opened with pulse files shows its fit in "What
+  this file supports"; the homepage's new section names the tolerance from the config.
+
+**Next, 13b:** channel locations. Units get regions and positions from the IBL
+alignment GUI's `channel_locations.json` or a CSV.
+
 ### 2026-10-05 — Responsiveness refuses periodic and back-to-back presentations (`analysis/responsiveness.py`, `configs/analysis.yaml`)
 
 **The problem** (docs/NEGATIVE_RESULTS.md, 2026-10-02): on Allen flashes, 0 of 430 units

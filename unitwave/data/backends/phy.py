@@ -15,9 +15,11 @@ One folder is one probe. Read from the folder:
 The events CSV has one row per trial, numeric columns, and the column names of the
 task definition it is read with (analysis.tasks; IBL's canonical names,
 session.TRIAL_FIELDS, by default). `intervals_0` and `intervals_1` (trial start and
-end) are required; the task period and unit QC are defined by them. Times must already
-be in seconds on the probe's clock: the loader refuses events outside the span of the
-recorded spikes, but cannot detect a smaller offset between clocks.
+end) are required; the task period and unit QC are defined by them. Times are in seconds
+on the probe's clock, or on another clock with a clock fit from sync pulses
+(data.sync, step 13a), which moves every time column, and only those, onto the probe's.
+Without one, the loader refuses events outside the span of the recorded spikes, but
+cannot detect a smaller offset between clocks.
 
 A Phy folder has no brain region, IBL QC label, 3-D position or recording length, so
 those unit fields are declared missing.
@@ -38,6 +40,7 @@ from unitwave.data.session import (
     Capabilities,
     Session,
 )
+from unitwave.data.sync import ClockFit
 
 _GROUP_FILES = (("cluster_group.tsv", "group"), ("cluster_KSLabel.tsv", "KSLabel"))
 _TEMPLATE_FILES = ("templates.npy", "spike_templates.npy", "channel_positions.npy")
@@ -115,7 +118,10 @@ def _depths(folder: Path, order: np.ndarray, starts: np.ndarray, ends: np.ndarra
 
 
 def _events(
-    path: str | Path, span: tuple[float, float], task: TaskDefinition | None = None
+    path: str | Path,
+    span: tuple[float, float],
+    task: TaskDefinition | None = None,
+    clock: ClockFit | None = None,
 ) -> pd.DataFrame:
     trials = pd.read_csv(path)
     known = list(dict.fromkeys([*TRIAL_FIELDS, *(task.columns if task else ())]))
@@ -139,13 +145,20 @@ def _events(
         raise ValueError(f"{path}: every trial needs a finite intervals_0 and intervals_1")
     times = [*TRIAL_TIME_FIELDS, *(task.time_columns if task else ())]
     for column in [c for c in dict.fromkeys(times) if c in trials]:
+        if clock is not None:
+            trials[column] = clock.to_probe(trials[column].to_numpy())
         t = trials[column].to_numpy()
         outside = np.isfinite(t) & ((t < span[0]) | (t > span[1]))
         if outside.any():
             raise ValueError(
                 f"{path}: {column} has {outside.sum()} times outside the recorded spikes "
-                f"({span[0]:.3f}–{span[1]:.3f} s). Event times must be in seconds on the "
-                "probe's clock."
+                f"({span[0]:.3f}–{span[1]:.3f} s)"
+                + (
+                    " after the clock fit."
+                    if clock is not None
+                    else ". Event times must be in seconds on the probe's clock, or come with "
+                    "sync pulses."
+                )
             )
     return trials
 
@@ -155,11 +168,13 @@ def load_session_phy(
     events_csv: str | Path,
     probe_name: str | None = None,
     task: TaskDefinition | None = None,
+    clock: ClockFit | None = None,
 ) -> Session:
     """Session with one unit per cluster in spike_clusters.npy, ids '<probe_name>_<cluster_id>'.
 
     probe_name defaults to the folder's name. task: the definition the events CSV is read
-    with; its columns are accepted besides IBL's (None: IBL's names only).
+    with; its columns are accepted besides IBL's (None: IBL's names only). clock: the
+    events' clock mapped onto the probe's (data.sync.fit_clock); None: already the same.
     """
     folder = Path(folder)
     probe_name = probe_name or folder.name
@@ -197,7 +212,7 @@ def load_session_phy(
         units["depths"] = depths
 
     span = (float(times.min()), float(times.max()))
-    trials = _events(events_csv, span, task)
+    trials = _events(events_csv, span, task, clock)
     missing |= {
         f"trials.{f}": "not in the events file, or empty there"
         for f in TRIAL_FIELDS

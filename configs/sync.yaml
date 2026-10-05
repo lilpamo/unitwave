@@ -1,0 +1,11 @@
+# Aligning a Phy folder's events to the probe's clock from sync pulses (step 13a;
+# unitwave/data/sync.py; docs/DECISIONS.md, "Step 13a"). Never change a value to make
+# a recording pass (R6).
+
+# The fit is a line, offset plus drift, from the events' clock to the probe's. It is
+# refused when any paired pulse lies further than this from it (signed off by the user
+# 2026-10-05). On d23a44ef the largest residual is 0.082 ms.
+tolerance_ms: 1.0
+# Event times further than this outside the pulses (before the first or after the last)
+# are refused: the line is only checked where pulses exist.
+max_outside_s: 10.0

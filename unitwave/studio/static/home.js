@@ -117,6 +117,7 @@ function setup(d) {
   $('dateFrom').max = $('dateTo').max = o.dates[1];
   $('minRegionUnits').value = o.min_region_units;
   $('modalities').innerHTML = o.modalities.map((m) => `<label><input type="checkbox" value="${esc(m)}"> ${esc(m)}</label>`).join('');
+  $('phySyncNote').textContent += ` A fit with any pulse more than ${o.sync_tolerance_ms} ms off the line is refused, and so are pulse files of different lengths.`;
   for (const t of o.tasks) $('phyTask').add(new Option(`${t.label} (${t.name})`, t.name, t.name === o.default_task, t.name === o.default_task));
   // NWB: a layout brings its own task, which can still be changed.
   $('nwbLayout').add(new Option('Generic NWB (no layout)', ''));
@@ -259,9 +260,13 @@ $('nwbPath').addEventListener('input', completeNwb);
 $('nwbOpen').addEventListener('click', () => openData(
   { kind: 'nwb', path: $('nwbPath').value, layout: $('nwbLayout').value, task: $('nwbTask').value },
   `NWB file ${$('nwbPath').value}`));
-$('phyOpen').addEventListener('click', () => openData(
-  { kind: 'phy', path: $('phyPath').value, task: $('phyTaskFile').value.trim() || $('phyTask').value },
-  `Phy folder ${$('phyPath').value}`));
+$('phyOpen').addEventListener('click', () => {
+  const body = { kind: 'phy', path: $('phyPath').value, task: $('phyTaskFile').value.trim() || $('phyTask').value };
+  // Sync pulses (step 13a): both or neither; the server says which is missing.
+  const probe = $('phySyncProbe').value.trim(), events = $('phySyncEvents').value.trim();
+  if (probe || events) Object.assign(body, { sync_probe: probe, sync_events: events });
+  openData(body, `Phy folder ${$('phyPath').value}`);
+});
 $('projects').addEventListener('click', (e) => { const b = e.target.closest('[data-project]'); if (b) openData({ kind: 'project', name: b.dataset.project }, `project ${b.dataset.project}`); });
 $('setSave').addEventListener('click', async () => {
   try {

@@ -313,6 +313,14 @@ Steinmetz, MC_Maze and drifting gratings are tested as before (docs/DECISIONS.md
 2026-10-05). A paired test within presentations is the way to give flashes an answer.
 It is not built.
 
+### Plan step 13: Phy sync and channel locations — 13a built (2026-10-05); 13b next
+
+Split like step 8.
+- **13a, clock sync: built.** Events on another clock are moved onto the probe's from
+  sync pulses (CatGT or IBL files), along a line refused above 1 ms. It reproduces
+  IBL's own alignment on d23a44ef within 0.1 ms (docs/DECISIONS.md, "Step 13a").
+- **13b, channel locations: next.** As specified in step 13 below.
+
 ### Plan only, don't build yet
 
 What each needs is listed under "Not to build yet" below:

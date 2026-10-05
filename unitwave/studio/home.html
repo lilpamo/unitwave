@@ -74,6 +74,11 @@
         <div class="inline"><input id="phyPath" list="phyChoices" placeholder="folder under the root, e.g. mouse1/probe00" autocomplete="off"><datalist id="phyChoices"></datalist><button class="btn" id="phyOpen">Open</button></div>
         <div class="inline"><label for="phyTask">Task</label><select id="phyTask"></select><input id="phyTaskFile" placeholder="or a task definition file (.yaml)" autocomplete="off"></div>
         <p class="note">The events file is read with this task's column names, events and conditions. A file without the columns it needs is refused, naming them.</p>
+        <details class="sync"><summary>Events on another clock? Add sync pulses</summary>
+          <div class="inline"><label for="phySyncProbe">Probe's clock</label><input id="phySyncProbe" placeholder="e.g. mouse1/run_g0_tcat.imec0.ap.xd_384_6_500.txt" autocomplete="off"></div>
+          <div class="inline"><label for="phySyncEvents">Events' clock</label><input id="phySyncEvents" placeholder="e.g. mouse1/run_g0_tcat.nidq.xd_8_3_500.txt" autocomplete="off"></div>
+          <p class="note" id="phySyncNote">The same sync pulses recorded on each clock, under the folder root: CatGT edge files (one time per line) or IBL's _spikeglx_sync.times files. The events are moved onto the probe's clock along a line (offset plus drift).</p>
+        </details>
         <p class="note" id="phyMsg"></p>
         <h4>Open an NWB file</h4>
         <p class="note" id="nwbRoot"></p>

@@ -118,6 +118,7 @@ from unitwave.data.cluster_files import (
 )
 from unitwave.data.load import DataConfig, key_parts, load_data_config
 from unitwave.data.manifest import MANIFEST_VERSION, Manifest, build_manifest
+from unitwave.data.sync import load_sync_config
 from unitwave.nwb.intake import REPORTS, list_layouts, load_layout
 from unitwave.qc.nwb import NwbUnitQC
 from unitwave.qc.phy import PhyUnitQC
@@ -131,6 +132,7 @@ from unitwave.studio.entry import (
     recent_projects,
     resolve_nwb_file,
     resolve_phy_folder,
+    resolve_sync_file,
 )
 from unitwave.studio.export import export_view
 from unitwave.studio.freshness import Freshness
@@ -474,7 +476,11 @@ class Studio:
         if s is None or s.kind == "ibl":
             return {"kind": "ibl", "label": f"IBL session · {self.session.eid}"}
         if s.kind == "phy":
-            return {"kind": "phy", "label": f"Phy folder · {s.folder}"}
+            return {
+                "kind": "phy",
+                "label": f"Phy folder · {s.folder}",
+                "report": REPORTS.get(self.session.eid),  # its clock (step 13a)
+            }
         layout = load_layout(s.layout)
         return {
             "kind": "nwb",
@@ -1927,6 +1933,7 @@ class App:
                 "n_probes": sorted(int(n) for n in s["n_probes"].unique()),
                 "modalities": sorted({x for mods in s["modalities"] for x in mods}),
                 "min_region_units": self.catalog_cfg.min_region_units,
+                "sync_tolerance_ms": load_sync_config().tolerance_ms,
                 "trial_levels": _BWM_TRIAL_LEVELS,
                 "tasks": list_tasks(),
                 "layouts": list_layouts(),
@@ -2035,7 +2042,17 @@ class App:
         if kind == "phy":
             folder, events = resolve_phy_folder(self.phy_root, str(body.get("path", "")))
             task = str(body.get("task") or DEFAULT_TASK)
-            source = Source(kind="phy", folder=str(folder), events=str(events), task=task)
+            sync = {}
+            if body.get("sync_probe") or body.get("sync_events"):  # step 13a: both, or neither
+                if not (body.get("sync_probe") and body.get("sync_events")):
+                    raise ValueError(
+                        "give the sync pulses on both clocks: the probe's and the events'"
+                    )
+                sync = {
+                    role: str(resolve_sync_file(self.phy_root, str(body[role])))
+                    for role in ("sync_probe", "sync_events")
+                }
+            source = Source(kind="phy", folder=str(folder), events=str(events), task=task, **sync)
             name = folder.name
         elif kind == "nwb":
             file = resolve_nwb_file(self.nwb_root, str(body.get("path", "")))
@@ -2267,6 +2284,8 @@ def build_app(argv: list[str]) -> tuple[App, str]:
     ap.add_argument("--backend", default="bwm")
     ap.add_argument("--phy", help="a Kilosort/Phy output folder (one probe); needs --events")
     ap.add_argument("--events", help="CSV of trial events, seconds on the probe's clock")
+    ap.add_argument("--sync-probe", help="with --phy: sync pulses on the probe's clock")
+    ap.add_argument("--sync-events", help="with --phy: the same pulses on the events' clock")
     ap.add_argument("--nwb", help="an NWB file with sorted units and a trials table")
     ap.add_argument(
         "--layout",
@@ -2304,11 +2323,20 @@ def build_app(argv: list[str]) -> tuple[App, str]:
         log = project.get("analysis_log", [])
     else:
         if args.phy:
+            sync = {
+                role: str(Path(path).resolve())
+                for role, path in (
+                    ("sync_probe", args.sync_probe),
+                    ("sync_events", args.sync_events),
+                )
+                if path
+            }
             source = Source(
                 kind="phy",
                 folder=str(Path(args.phy).resolve()),
                 events=str(Path(args.events).resolve()),
                 task=args.task or DEFAULT_TASK,
+                **sync,
             )
         elif args.nwb:
             source = Source(

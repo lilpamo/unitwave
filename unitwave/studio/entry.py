@@ -4,7 +4,8 @@ projects.
 **Phy folders** are opened only from under a configured root (configs/catalog.yaml,
 `phy_root`). A path is resolved with every symlink followed and must stay inside the
 root, so `../` and symlinks pointing out are refused alike. A folder pairs with the
-`events.csv` beside its `params.py`. Missing files get plain-language refusals.
+`events.csv` beside its `params.py`, and optionally with sync pulse files under the same
+root (step 13a). Missing files get plain-language refusals.
 
 **NWB files** are opened the same way, only from under `nwb_root` (configs/catalog.yaml).
 
@@ -30,6 +31,22 @@ def _inside(root: Path, path: Path, what: str = "Phy folder") -> Path:
     if real != real_root and real_root not in real.parents:
         raise ValueError(f"{path} is outside the {what} root {root}")
     return real
+
+
+def resolve_sync_file(root: str | os.PathLike, user_path: str) -> Path:
+    """A sync pulse file under the Phy root (data.sync): a CatGT edge file (.txt) or
+    IBL's _spikeglx_sync.times*.npy; else a plain-language refusal."""
+    root = Path(root).expanduser()
+    candidate = Path(user_path).expanduser()
+    path = _inside(root, candidate if candidate.is_absolute() else root / candidate)
+    if not path.is_file():
+        raise ValueError(f"no sync pulse file {user_path} under {root}")
+    if path.suffix != ".txt" and not path.name.startswith("_spikeglx_sync.times"):
+        raise ValueError(
+            f"{path.name} isn't a sync pulse file: give a CatGT edge file (.txt, one time per "
+            "line) or IBL's _spikeglx_sync.times file"
+        )
+    return path
 
 
 def resolve_nwb_file(root: str | os.PathLike, user_path: str) -> Path:

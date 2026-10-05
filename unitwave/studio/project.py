@@ -39,6 +39,7 @@ from unitwave.analysis.tuning import DEFAULT_CONFIG as SELECTIVITY_CONFIG
 from unitwave.data.backends.phy import load_session_phy
 from unitwave.data.load import key_parts, load_session
 from unitwave.data.session import Session
+from unitwave.data.sync import fit_clock, load_sync_config, read_pulses
 from unitwave.nwb.intake import REPORTS, layout_path, load_layout, read_nwb
 from unitwave.qc.nwb import DEFAULT_CONFIG as NWB_QC_CONFIG
 from unitwave.qc.nwb import NwbUnitQC, load_nwb_qc_config
@@ -110,7 +111,9 @@ DEFAULT_VIEW = {
 class Source:
     """kind "ibl" (eid, backend), "phy" (folder, events) or "nwb" (file, and the layout
     its specifics are declared in: a built-in name, a YAML path, or None for generic);
-    task: the task definition, a built-in name or a YAML file's path."""
+    task: the task definition, a built-in name or a YAML file's path. A Phy folder may
+    also name its sync pulses on each clock (sync_probe, sync_events; data.sync, step
+    13a); projects saved before have neither, and open as before."""
 
     kind: str
     eid: str | None = None
@@ -120,6 +123,8 @@ class Source:
     task: str = DEFAULT_TASK
     file: str | None = None
     layout: str | None = None
+    sync_probe: str | None = None
+    sync_events: str | None = None
 
     def __post_init__(self):
         needs = {"ibl": ("eid", "backend"), "phy": ("folder", "events"), "nwb": ("file",)}
@@ -127,6 +132,10 @@ class Source:
             raise ValueError(f"unknown data source kind {self.kind!r}")
         if any(getattr(self, f) is None for f in needs[self.kind]):
             raise ValueError(f"a {self.kind} source needs {needs[self.kind]}")
+        if (self.sync_probe is None) != (self.sync_events is None):
+            raise ValueError("sync needs the pulses on both clocks: the probe's and the events'")
+        if self.sync_probe is not None and self.kind != "phy":
+            raise ValueError("sync pulses are read for Phy folders only")
 
     @classmethod
     def from_record(cls, record: dict) -> "Source":
@@ -145,7 +154,16 @@ def load_source(source: Source):
     for one without (qc.spike_times)."""
     if source.kind == "phy":
         task = load_task(source.task)
-        session = load_session_phy(source.folder, source.events, task=task)
+        clock = None
+        if source.sync_probe is not None:
+            clock = fit_clock(
+                read_pulses(source.sync_probe), read_pulses(source.sync_events), load_sync_config()
+            )
+        session = load_session_phy(source.folder, source.events, task=task, clock=clock)
+        REPORTS[session.eid] = {
+            "kind": "phy",
+            "clock": None if clock is None else clock.describe(),
+        }
         labelled = any((Path(source.folder) / name).exists() for name in PHY_LABEL_FILES)
         return session, load_phy_qc_config() if labelled else load_spike_qc_config()
     if source.kind == "nwb":
@@ -167,8 +185,9 @@ def _sha256(path: Path) -> str:
 
 
 def file_hashes(source: Source) -> dict[str, str]:
-    """name -> sha256 of each Phy file present and of the events CSV, or of the NWB
-    file. {} for IBL."""
+    """name -> sha256 of each Phy file present, of the events CSV and of any sync pulse
+    files (keyed sync_probe/<name> and sync_events/<name>; IBL's with their channels and
+    polarities), or of the NWB file. {} for IBL."""
     if source.kind == "nwb":
         return {Path(source.file).name: _sha256(Path(source.file))}
     if source.kind != "phy":
@@ -176,6 +195,19 @@ def file_hashes(source: Source) -> dict[str, str]:
     folder = Path(source.folder)
     hashes = {name: _sha256(folder / name) for name in PHY_FILES if (folder / name).exists()}
     hashes[Path(source.events).name] = _sha256(Path(source.events))
+    for role in ("sync_probe", "sync_events"):
+        path = getattr(source, role)
+        if path is None:
+            continue
+        path = Path(path)
+        files = [path]
+        if path.name.startswith("_spikeglx_sync.times"):
+            files += [
+                path.with_name(path.name.replace(".times", f".{part}"))
+                for part in ("channels", "polarities")
+            ]
+        for f in files:
+            hashes[f"{role}/{f.name}"] = _sha256(f)
     return hashes
 
 

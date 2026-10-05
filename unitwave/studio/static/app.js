@@ -59,6 +59,12 @@ function renderSourceReport(r) {
   $('sourceReport').hidden = !r;
   if (!r) return;
   const row = (what, text, cls = '') => `<li class="${cls}"><b>${esc(what)}</b> ${esc(text)}</li>`;
+  if (r.kind === 'phy') {  // a Phy folder's clock (step 13a)
+    $('sourceReportBody').innerHTML = `<ul>${r.clock
+      ? row('Clock', `events moved onto the probe's clock: ${r.clock}`)
+      : row('Clock', "no sync pulses: the events are taken to be on the probe's clock already", 'gone')}</ul>`;
+    return;
+  }
   const items = [
     row('Units', `${r.units.n}, probes ${r.units.probes.join(', ')}` + (r.units.depth ? `; depth from ${r.units.depth}` : '; no depth')),
     row('Quality', r.units.quality || 'none declared: unit QC is on spike times'),
