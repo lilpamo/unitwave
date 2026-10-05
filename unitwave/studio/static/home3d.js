@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from '/static/vendor/three/OrbitControls.js';
 import { OBJLoader } from '/static/vendor/three/OBJLoader.js';
+import { fit, vertices } from '/static/fit3d.js';
 
 export function createOverview(el, { onHover, onPick }) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -20,28 +21,30 @@ export function createOverview(el, { onHover, onPick }) {
   scene.add(camera, new THREE.AmbientLight(0xffffff, 1.1));
   const brainMaterial = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.1, depthWrite: false });
   let lines = null, rows = [], hovered = -1;
+  // The brain fills the canvas; refitted when the canvas changes shape, until the user
+  // rotates or zooms it themselves.
+  let brainPoints = [], probePoints = [], moved = false;
+  // The brain and the probes' ends (they stick out above it) both stay in view.
+  const refit = () => { if (!moved) fit(camera, controls, [...brainPoints, ...probePoints]); };
+  controls.addEventListener('start', () => { moved = true; });
 
   new ResizeObserver(() => {
     const w = el.clientWidth, h = el.clientHeight;
+    if (!w || !h) return;
     renderer.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    refit();
     render();
   }).observe(el);
-
-  function frame(box) {
-    const centre = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3()).length();
-    controls.target.copy(centre);
-    camera.position.copy(centre).add(new THREE.Vector3(-0.55 * size, -0.75 * size, 0.95 * size));
-    controls.update();
-  }
 
   async function loadBrain(id, muted) {
     brainMaterial.color.set(muted);
     const brain = await new OBJLoader().loadAsync(`/mesh/${id}.obj`);
     brain.traverse((o) => { if (o.isMesh) o.material = brainMaterial; });
     scene.add(brain);
-    frame(new THREE.Box3().setFromObject(brain));
+    brainPoints = vertices(brain);
+    refit();
     render();
   }
 
@@ -85,6 +88,8 @@ export function createOverview(el, { onHover, onPick }) {
     geom.setAttribute('color', new THREE.Float32BufferAttribute(vertexColours, 3));
     lines = new THREE.LineSegments(geom, new THREE.LineBasicMaterial({ vertexColors: true }));
     scene.add(lines);
+    probePoints = rows.flatMap((r) => [new THREE.Vector3(...r.tip), new THREE.Vector3(...r.top)]);
+    if (brainPoints.length) refit();  // before the brain loads, it decides the view
     render();
   }
 

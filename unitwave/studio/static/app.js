@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from '/static/vendor/three/OrbitControls.js';
 import { OBJLoader } from '/static/vendor/three/OBJLoader.js';
+import { corners, fit, vertices } from '/static/fit3d.js';
 
 const $ = (id) => document.getElementById(id);
 const state = { session: null, level: null, node: '', all: false, responsive: false, movementFree: false, probe: '', split: '', trials: {}, unit: null, rows: [], tree: [], popRows: null, box: null,
@@ -874,6 +875,9 @@ async function renderProbe() {
 const brain = (() => {
   const el = $('brain');
   let renderer, scene, camera, controls, points, marker, ids = [], positions = new Map(), framed = false, generation = 0;
+  // What the camera fits (the brain, or the units before it loads); refitted when the
+  // card changes shape, until the user rotates or zooms the view themselves.
+  let fitTo = [], moved = false;
   const meshes = new Map(), loader = new OBJLoader(), regionGroup = new THREE.Group(), trackGroup = new THREE.Group();
   const brainMaterial = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.1, depthWrite: false });
   const trackMaterial = new THREE.LineBasicMaterial();
@@ -897,6 +901,7 @@ const brain = (() => {
     camera.up.set(0, -1, 0);  // CCF dorsoventral grows ventrally, so dorsal is up
     controls = new OrbitControls(camera, renderer.domElement);
     controls.addEventListener('change', render);
+    controls.addEventListener('start', () => { moved = true; });
     const light = new THREE.DirectionalLight(0xffffff, 1.6);
     light.position.set(-0.5, -1, 0.6);
     camera.add(light);
@@ -906,9 +911,11 @@ const brain = (() => {
     scene.add(marker);
     new ResizeObserver(() => {
       const w = el.clientWidth, h = el.clientHeight;
+      if (!w || !h) return;
       renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
+      if (!moved) fit(camera, controls, fitTo);
       render();
     }).observe(el);
     renderer.domElement.addEventListener('click', pick);
@@ -922,11 +929,9 @@ const brain = (() => {
     render();
   }
 
-  function frame(box) {
-    const centre = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3()).length();
-    controls.target.copy(centre);
-    camera.position.copy(centre).add(new THREE.Vector3(-0.55 * size, -0.75 * size, 0.95 * size));
-    controls.update();
+  function frame(pts) {
+    fitTo = pts;
+    fit(camera, controls, fitTo);
   }
 
   function mesh(id) {
@@ -971,7 +976,7 @@ const brain = (() => {
     for (const t of g.tracks) {
       trackGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...t.a), new THREE.Vector3(...t.b)]), trackMaterial));
     }
-    if (!framed) { geom.computeBoundingBox(); frame(geom.boundingBox.clone().expandByScalar(2500)); }
+    if (!framed) { geom.computeBoundingBox(); frame(corners(geom.boundingBox.clone().expandByScalar(2500))); }
     render();
     note('Loading meshes… the first view downloads them from the Allen Institute.');
     // Each mesh on its own: one failed download leaves the others drawn.
@@ -980,7 +985,7 @@ const brain = (() => {
     if (whole.status === 'fulfilled') {
       whole.value.traverse((o) => { if (o.isMesh) o.material = brainMaterial; });
       scene.add(whole.value);
-      if (!framed) { frame(new THREE.Box3().setFromObject(whole.value)); framed = true; }
+      if (!framed) { frame(vertices(whole.value)); framed = true; }
     }
     regionGroup.clear();
     const notDrawn = whole.status === 'rejected' ? ['the brain outline'] : [];
