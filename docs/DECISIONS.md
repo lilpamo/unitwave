@@ -6,6 +6,60 @@ first.
 
 ---
 
+### 2026-10-05 — Session page redesign: workspaces, a context bar, and Explore in three columns (`studio/index.html`, `static/app.css`, `static/app.js`)
+
+**Why (the user, 2026-10-05):** "the app works well, but it doesn't make sense in terms
+of layout". Measured at 1440 × 900:
+- **The left rail was about three screens tall,** mixing filters with five analyses; the
+  region tree sat at its very bottom.
+- **The selected unit's raster and PSTH,** the view used most, had a 330 × 474 card,
+  while the units table was 470 × 956.
+- **The brain and the trial view were below the fold,** and test results were small
+  sentences in the rail, away from their buttons.
+
+**The design, agreed with the user (sketched in chat, 2026-10-05):** the page follows how
+a session is read: where the units are, which units, what one unit does, whether it is
+real.
+- **Four workspaces in the top bar:**
+  - **Explore,** in three columns, narrow to wide:
+    - **Where:** the 3-D brain and the region tree, together;
+    - **Units:** the table;
+    - **Selected unit:** its tabs, with the probe strip beside it.
+  - **Population:** the heatmap, trajectories and decoding table, beside the
+    single-trial view.
+  - **Statistics:** one card per test (what it tests, its null and correction, Run,
+    its result), with the analysis log listed below.
+  - **Recipes:** the guided panel, over whichever workspace is open. A step now shows
+    the workspace its result is in.
+- **A context bar, always visible:** the event, the window and bins, the split, the
+  trials kept and the units shown, each a chip opening its controls. Every view and
+  test uses what it says.
+- **The top bar holds one line at laptop width:**
+  - the session's name opens what its files support, and the project file's name;
+  - Save and Export report there;
+  - the log total opens the log;
+  - on screens under 1300 px the wordmark gives way.
+- **Narrower screens:**
+  - **Under 1250 px:** two columns, with the brain and the regions side by side in a
+    wide Where card.
+  - **Under 860 px:** one column, the selected unit first.
+- **Up and down arrows step through the units** in the table's order, and every view
+  follows. This is pulled forward from the plan-only unit browsing extras by the user's
+  choice; the rest of that list stays plan-only. Left and right still step through
+  trials.
+- **The workspace shown is remembered in this browser** (localStorage), not in the
+  project file, whose view settings are unchanged.
+
+**Not changed:** every endpoint, number, caption and test; every element id the code uses;
+the homepage, which is the next pass. No Python changed.
+
+**Checked in the browser** (d23a44ef):
+- **Explore** at 1440, 1200 and 820 px, dark and light;
+- **Statistics:** a responsiveness run gives its result in its card and an entry in the
+  log;
+- **Population:** the heatmap and the trial view side by side;
+- **Controls:** the Units chip's controls, and arrow keys stepping through three units.
+
 ### 2026-10-05 — Step 13b: channel locations for Phy folders (`data/channel_locations.py`)
 
 **What (plan step 13, its second part):** histology-aligned channel locations give a

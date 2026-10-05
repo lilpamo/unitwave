@@ -326,6 +326,18 @@ Split like step 8.
 - **Not built:** region summaries across Phy folders (`cli.summarise` reads IBL sets
   and NWB files).
 
+### Layout redesign — session page built (2026-10-05); homepage next
+
+Asked by the user: the layout should follow how a neuroscientist reads a session.
+- **The session page has four workspaces** (Explore, Population, Statistics, Recipes)
+  under a context bar of chips. Explore shows where, which units, and the selected
+  unit in three columns. Up and down arrows step through units (docs/DECISIONS.md,
+  "Session page redesign").
+- **The homepage, next:**
+  - the 3-D map and the session list side by side;
+  - one Open data card with tabs (IBL release, NWB file, Phy folder, recent projects);
+  - region summaries in their own Across sessions view.
+
 ### Plan only, don't build yet
 
 What each needs is listed under "Not to build yet" below:

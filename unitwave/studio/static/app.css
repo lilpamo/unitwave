@@ -36,7 +36,8 @@ button, input, select { font: inherit; color: inherit; }
 input[type=number] { width: 60px; }
 input[type=number], select { background: var(--surface); border: 1px solid var(--axis); border-radius: 6px; padding: 3px 6px; }
 
-.topbar { display: flex; align-items: center; gap: 16px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+.topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+.topbar .btn { white-space: nowrap; }
 .brand { font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px; } .brand span { font-weight: 400; color: var(--ink2); }
 .brand img { width: 24px; height: 24px; flex: none; }
 /* Doubled class: outranks element rules such as .card img { display: block }. */
@@ -50,9 +51,10 @@ input[type=number], select { background: var(--surface); border: 1px solid var(-
 .seg button[aria-pressed=true] { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
 .seg button:disabled { cursor: not-allowed; opacity: .5; }
 
-.shell { display: grid; grid-template-columns: 260px 1fr; min-height: calc(100vh - 49px); }
-.rail { border-right: 1px solid var(--line); background: var(--surface); padding: 16px; display: flex; flex-direction: column; gap: 20px; position: sticky; top: 49px; height: calc(100vh - 49px); overflow: auto; }
-.rail .grow { flex: 1; min-height: 0; }
+/* The page is one screen tall: the top bar and the context bar stay, the workspace
+   below scrolls (Explore fits the screen, its cards scroll inside). */
+body { height: 100dvh; display: flex; flex-direction: column; }
+.topbar, .context, .banner { flex: none; }
 .check { display: flex; align-items: center; gap: 6px; }
 .note { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
 
@@ -63,19 +65,88 @@ input[type=number], select { background: var(--surface); border: 1px solid var(-
 .node .n { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
 .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; box-shadow: 0 0 0 1px var(--ring); }
 
-main { padding: 12px 16px 24px; min-width: 0; }
-.toolbar { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 8px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 12px; color: var(--ink2); }
-.toolbar label { display: inline-flex; align-items: center; gap: 6px; }
+main { flex: 1; min-height: 0; overflow: auto; padding: 12px 16px 16px; min-width: 0; }
 
-.grid { display: grid; gap: 12px; grid-template-columns: minmax(470px, 1.15fr) minmax(330px, 1fr) minmax(330px, 1fr);
-  grid-template-areas: "table unit pop" "table brain brain" "trial trial trial"; }
-.area-table { grid-area: table; } .area-unit { grid-area: unit; } .area-pop { grid-area: pop; } .area-brain { grid-area: brain; } .area-trial { grid-area: trial; }
-@media (max-width: 1250px) { .grid { grid-template-columns: 1fr 1fr; grid-template-areas: "unit pop" "table brain" "trial trial"; } }
-@media (max-width: 800px) {
-  .shell { grid-template-columns: 1fr; }
-  .topbar, .rail { position: static; }
-  .rail { height: auto; }
-  .grid { grid-template-columns: 1fr; grid-template-areas: "unit" "pop" "trial" "brain" "table"; }
+/* The context bar: what every view and test uses. Each chip opens its controls. */
+.context { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--line); color: var(--ink2); }
+.ctl { display: inline-flex; align-items: center; gap: 6px; }
+.pick { position: relative; }
+.pick > summary { list-style: none; cursor: pointer; }
+.pick > summary::-webkit-details-marker { display: none; }
+.chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--axis); border-radius: 8px; padding: 3px 10px; background: var(--raised); color: var(--ink); }
+.chip .k { color: var(--muted); }
+.chip::after { content: "▾"; color: var(--muted); font-size: 10px; }
+.pick[open] > .chip { background: var(--accent-wash); }
+.pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 6; display: grid; gap: 8px; min-width: 260px; max-width: min(460px, 92vw);
+  background: var(--raised); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px var(--ring); padding: 12px; color: var(--ink2); }
+.pop.wide { min-width: min(420px, 92vw); max-width: min(560px, 92vw); }
+.pop label { display: flex; align-items: center; gap: 6px; }
+.pop .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pop .lbl { color: var(--muted); font-size: 12px; }
+.pop .note { margin: 0; }
+.pick.session { min-width: 0; flex: 0 1 auto; }
+.pick.session > summary { max-width: 20vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project #logTotal { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project #projectStatus { max-width: 200px; }
+.project #projectStatus:empty { display: none; }
+.pick.session .pop { min-width: 320px; }
+.pick.session > summary::after { content: " ▾"; color: var(--muted); }
+.workspaces { font-size: 13px; }
+.linkish { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; }
+.linkish:hover { color: var(--ink); text-decoration: underline; }
+
+.ws[hidden] { display: none !important; }
+/* Explore: where (brain and regions), which units, and the selected unit, widest last;
+   one screen tall, each card scrolling inside. */
+.ws-explore { display: grid; gap: 12px; height: 100%; grid-template-columns: 300px minmax(380px, 0.95fr) minmax(460px, 1.45fr); grid-template-areas: "where table unit"; }
+.area-where { grid-area: where; } .area-table { grid-area: table; } .area-unit { grid-area: unit; }
+.ws-explore > .card { min-height: 0; }
+.area-where .brain { flex: none; height: 44%; min-height: 200px; }
+.area-where h4 { margin: 12px 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.area-where .tree { flex: 1; min-height: 0; overflow: auto; }
+.area-unit { overflow: auto; }
+.unitbody { display: flex; gap: 12px; flex: 1; min-height: 0; }
+.unitmain { flex: 1; min-width: 0; }
+.unitbody .probe { width: 132px; flex: none; display: flex; flex-direction: column; min-height: 360px; }
+.unitbody .probe .meta { margin: 0 0 4px; font-size: 11px; }
+.unitbody .probe svg { flex: 1; min-height: 0; }
+@media (max-width: 1250px) {
+  .ws-explore { grid-template-columns: minmax(300px, 0.85fr) minmax(420px, 1.25fr); grid-template-rows: minmax(0, 0.95fr) minmax(0, 1.05fr); grid-template-areas: "where unit" "table unit"; }
+}
+/* Two columns: the Where card is wide and short, so the brain and the regions sit side
+   by side in it. */
+@media (max-width: 1250px) and (min-width: 861px) {
+  .ws-explore > .area-where { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); column-gap: 12px; }
+  .area-where > header { grid-column: 1 / -1; }
+  .area-where .brain { grid-column: 1; grid-row: 2 / 4; height: auto; min-height: 0; }
+  .area-where h4 { grid-column: 2; grid-row: 2; margin-top: 0; }
+  .area-where .tree { grid-column: 2; grid-row: 3; }
+}
+/* The wordmark gives way first on a narrower screen; the icon stays. */
+@media (max-width: 1300px) { .topbar .brand { font-size: 0; gap: 0; } }
+/* Population: the population views beside the single-trial view. */
+.ws-population { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); align-items: start; }
+@media (max-width: 1250px) { .ws-population { grid-template-columns: 1fr; } }
+/* Statistics: one card per test, the result beside its button; the log below them. */
+.ws-statistics { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); align-items: start; }
+.test .note { margin: 0 0 8px; }
+.test .btn { margin: 0; }
+.result { color: var(--ink); font-size: 13px; margin: 10px 0 0; }
+.result:empty { display: none; }
+.test.log { grid-column: 1 / -1; }
+.loglist { margin: 0; padding-left: 22px; display: grid; gap: 4px; font-size: 12px; color: var(--ink2); max-height: 360px; overflow: auto; }
+.loglist .st { color: var(--muted); }
+.loglist .empty { list-style: none; margin-left: -22px; }
+.loglist .confirmed { color: var(--accent); font-weight: 600; }
+/* One column on a narrow screen: the page scrolls, cards keep their own height. */
+@media (max-width: 860px) {
+  .ws-explore { height: auto; grid-template-columns: 1fr; grid-template-rows: none; grid-template-areas: "unit" "where" "table"; }
+  .area-where .brain { height: 280px; }
+  .area-where .tree { max-height: 320px; }
+  .area-table { max-height: 100dvh; }
+  .area-table .table { flex: 0 1 auto; }
+  .unitbody { flex-direction: column; }
+  .unitbody .probe { width: 100%; min-height: 0; height: 360px; }
 }
 
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; display: flex; flex-direction: column; }
@@ -92,13 +163,6 @@ main { padding: 12px 16px 24px; min-width: 0; }
    comes from the grid rows it spans, set by the cards beside it; a zero flex basis
    keeps a long list from stretching those rows. */
 .area-table .table { flex: 1 1 0; min-height: 0; }
-/* In one column the unit card is alone in its row, with no neighbour to size it: it
-   is at most one screen tall, and a short list keeps its own height. (After the rule
-   above, which it overrides.) */
-@media (max-width: 800px) {
-  .area-table { max-height: 100dvh; }
-  .area-table .table { flex: 0 1 auto; }
-}
 table { border-collapse: collapse; width: 100%; font-size: 12px; }
 th, td { padding: 4px 6px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
 th { position: sticky; top: 0; background: var(--surface); color: var(--muted); font-weight: 600; font-size: 11px; }
@@ -113,11 +177,9 @@ tbody tr[aria-selected=true] td { background: var(--accent-wash); }
 .popwrap img { cursor: crosshair; }
 .tip { position: absolute; pointer-events: none; background: var(--raised); color: var(--ink); border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(0,0,0,.15); border-radius: 6px; padding: 3px 7px; font-size: 12px; white-space: nowrap; transform: translate(10px, -50%); }
 
-.brainrow { display: flex; gap: 12px; height: 420px; }
-.brain { flex: 1; position: relative; border-radius: 8px; overflow: hidden; background: var(--plane); min-width: 0; }
+.brain { position: relative; border-radius: 8px; overflow: hidden; background: var(--plane); min-width: 0; }
 .brain canvas { display: block; }
-.brain .note { position: absolute; left: 10px; bottom: 8px; margin: 0; }
-.probe { width: 150px; flex: none; }
+.brain .note { position: absolute; left: 10px; right: 10px; bottom: 8px; margin: 0; }
 .probe svg { width: 100%; height: 100%; display: block; }
 .probe text { font-size: 10px; fill: var(--ink2); }
 .probe .tick { fill: var(--muted); }
@@ -170,9 +232,9 @@ td.resp { text-align: center; }
 .qualityfacts .flag { color: var(--fail); }
 #trajDims { margin-bottom: 6px; font-size: 12px; }
 
-/* Decoding (S3): the target picker fills the rail; the result table scrolls sideways
+/* Decoding (S3): the target picker fills its card; the result table scrolls sideways
    inside a narrow card; notes and verdict lines wrap. */
-#decTarget { display: block; width: 100%; margin-top: 6px; }
+#decTarget { display: block; width: 100%; margin: 0 0 8px; }
 .dectable { overflow-x: auto; }
 .dectable table { font-size: 11px; }
 .dectable th, .dectable td { padding: 3px 3px; }
@@ -186,7 +248,7 @@ td.resp { text-align: center; }
 .report li.gone { color: var(--muted); }
 
 /* Recipes drawer (step 9): over the page's right side, below the top bar. */
-.drawer { position: fixed; top: 49px; right: 0; bottom: 0; width: min(520px, 100vw); z-index: 4; overflow: auto;
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(520px, 100vw); z-index: 4; overflow: auto;
   background: var(--surface); border-left: 1px solid var(--line); box-shadow: -8px 0 24px var(--ring); padding: 16px; }
 .drawer > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .recipe { border-top: 1px solid var(--line); padding: 10px 0; }

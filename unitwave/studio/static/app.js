@@ -80,6 +80,39 @@ function renderSourceReport(r) {
   $('sourceReportBody').innerHTML = `<p class="note">Layout: ${esc(r.layout)}</p><ul>${items.join('')}</ul>`;
 }
 
+// ---------- workspaces and the context bar (redesign) ----------
+// Three workspaces share one session and one set of settings; switching only shows
+// another. The choice is remembered in this browser, not in the project file.
+const WORKSPACES = ['explore', 'population', 'statistics'];
+function showWorkspace(ws) {
+  if (!WORKSPACES.includes(ws)) ws = 'explore';
+  state.ws = ws;
+  for (const w of WORKSPACES) $(`ws-${w}`).hidden = w !== ws;
+  for (const b of $('workspaces').querySelectorAll('button')) b.setAttribute('aria-pressed', b.dataset.ws === ws);
+  try { localStorage.setItem('studio-ws', ws); } catch { /* storage may be unavailable */ }
+  if (ws === 'explore' && state.session) renderProbe();  // the strip measures its box
+  if (ws === 'statistics') refreshLog();
+}
+// The chips say what every view uses; their controls are inside them.
+function renderWindowChip() {
+  const bin = Math.round(+$('bin').value * 1000 * 10) / 10;
+  $('windowText').textContent = `${$('t0').value} to ${$('t1').value} s · ${bin} ms bins` +
+    ($('baseline').checked ? ` · baseline ${$('b0').value} to ${$('b1').value} s subtracted` : '');
+}
+function renderUnitsChip() {
+  const where = [state.probe || (state.session.probes.length > 1 ? `${state.session.probes.length} probes` : ''),
+    state.node ? `in ${state.node}` : ''].filter(Boolean).join(' · ');
+  $('unitsText').textContent = `${state.rows.length} ${state.all ? 'incl. failing QC' : 'passing QC'}` +
+    (state.responsive ? ' · responsive only' : '') + (where ? ` · ${where}` : '');
+}
+function renderLogList(entries) {
+  $('logList').innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.what)} · ${e.n_tests} hypotheses · ` +
+    `${e.n_trials ?? '—'} trials${e.repeat ? ' · repeat' : ''}${e.recipe ? ` · recipe ${esc(e.recipe)}` : ''} · ` +
+    (e.status === 'confirmatory' ? `<span class="confirmed">confirmatory (plan ${esc(e.plan)})</span>` : `<span class="st">exploratory: ${esc(e.why)}</span>`) +
+    ` <span class="st">${esc(e.at.slice(0, 16).replace('T', ' '))} UTC</span></li>`).join('')
+    : '<li class="st empty">No tests yet in this project.</li>';
+}
+
 // ---------- data ----------
 async function init() {
   const s = (state.session = await getJSON('/api/session'));
@@ -102,6 +135,7 @@ async function init() {
   if (s.events[v.event]) $('event').value = v.event;
   for (const k of ['t0', 't1', 'bin', 'b0', 'b1']) $(k).value = v[k];
   $('baseline').checked = v.baseline;
+  renderWindowChip();
   $('all').checked = state.all = v.all;
   state.node = v.node || '';
   state.unit = v.unit;
@@ -124,10 +158,12 @@ async function init() {
   renderProbes();
   state.level = noRegion ? null : (s.levels.includes(v.level) ? v.level : s.default_level);
   const base = (p) => p.split('/').pop();
-  $('projectStatus').textContent = !s.project.path ? ''
+  // The project file is named in the session's popover; the top bar's status line is
+  // kept for what Save and Export just did.
+  $('projectFile').textContent = !s.project.path ? 'No project file: this Studio was started without a data source.'
     : s.project.opened ? `Project: ${base(s.project.opened)} · saves as ${base(s.project.path)}`
       : `Project: ${base(s.project.path)}`;
-  $('projectStatus').title = s.project.path || '';
+  $('projectFile').title = s.project.path || '';
   renderWarnings(s.project.warnings);
   $('level').innerHTML = s.levels
     .map((l) => `<button data-v="${l}" aria-pressed="${l === state.level}" ${noRegion ? 'disabled' : ''}>${l}</button>`)
@@ -138,6 +174,9 @@ async function init() {
     `two-sided, against every circular shift of each spike train (≥ ${r.min_shift_s} s). ` +
     `Benjamini–Hochberg across the units tested, α = ${r.alpha}.`;
   renderMovementNotes();
+  let ws = 'explore';
+  try { ws = localStorage.getItem('studio-ws') || ws; } catch { /* storage may be unavailable */ }
+  showWorkspace(ws);
   await loadUnits();
   if (v.responsive) {  // results are never saved: rerun the test the view relied on
     await runTest();
@@ -184,19 +223,25 @@ async function act(button, busy, work) {
 // The analysis log's running total (step 9b): every test computed in this project.
 function renderLog(t) {
   const n = (x, one, many) => `${x.toLocaleString()} ${x === 1 ? one : many}`;
+  // Short in the bar; the hypotheses tested are in the Statistics workspace's log.
   $('logTotal').textContent = t.n_tests
-    ? `Log: ${n(t.n_tests, 'test', 'tests')} · ${n(t.n_hypotheses, 'hypothesis', 'hypotheses')} · ` +
-      (t.n_confirmatory ? `${t.n_confirmatory} confirmatory` : 'all exploratory')
+    ? `Log: ${n(t.n_tests, 'test', 'tests')} · ` + (t.n_confirmatory ? `${t.n_confirmatory} confirmatory` : 'exploratory')
     : 'Log: no tests yet';
+  $('logMeta').textContent = t.n_tests ? `${n(t.n_tests, 'test', 'tests')}, ${n(t.n_hypotheses, 'hypothesis', 'hypotheses')} tested (repeats counted once) · newest first` : '';
 }
 async function refreshLog() {
-  try { renderLog((await getJSON('/api/log')).total); } catch { /* the log shows at the next test */ }
+  try {
+    const d = await getJSON('/api/log');
+    renderLog(d.total);
+    renderLogList(d.entries);
+  } catch { /* the log shows at the next test */ }
 }
 async function loadUnits() {
   refreshLog();
   const d = await getJSON('/api/units?' + params());
   state.rows = d.units;
   state.tree = d.tree;
+  renderUnitsChip();
   renderTest(d.test);
   renderSelectivity(d.selectivity);
   renderLocking(d.locking);
@@ -218,7 +263,7 @@ async function loadGeometry() {
   }
 }
 
-// ---------- rail: probe filter ----------
+// ---------- probe filter ----------
 // Colours come from the server, fixed by each probe's place in the session.
 function renderProbes() {
   const s = state.session, colours = s.probe_colours[theme()];
@@ -228,7 +273,7 @@ function renderProbes() {
   $('probeFilter').innerHTML = button('', 'All probes') + s.probes.map((p) => button(p, p, colours[p])).join('');
 }
 
-// ---------- rail: responsiveness ----------
+// ---------- responsiveness ----------
 function renderTest(t) {
   $('responsive').disabled = !t;
   if (!t) {
@@ -260,7 +305,7 @@ async function runTest() {
 // A test belongs to one event and one unit set; changing either drops the filter.
 function resetResponsive() { state.responsive = false; $('responsive').checked = false; }
 
-// ---------- rail: movement ----------
+// ---------- movement ----------
 // Movement-free trials and the locking test need each trial's first movement; the
 // notes say what each does, or why it is unavailable. The server does the work.
 function renderMovementNotes() {
@@ -302,7 +347,7 @@ async function runLocking() {
   }
 }
 
-// ---------- rail: trial filters ----------
+// ---------- trial filters ----------
 // Set on the homepage (or in the project); changeable here. The server applies them.
 // The filters are the task definition's (session.task.trial_filters), in its order:
 // a tick box for flag and exclude_values filters, one box per level for select ones.
@@ -340,9 +385,10 @@ function renderTrialCounts(c) {
   $('trialCounts').textContent = c.n_excluded
     ? `${c.n_kept} of ${c.n_total} trials kept · excluded: ${why}`
     : `All ${c.n_total} trials kept.`;
+  $('trialsText').textContent = c.n_excluded ? `${c.n_kept} of ${c.n_total}` : `all ${c.n_total}`;
 }
 
-// ---------- rail: selectivity ----------
+// ---------- selectivity ----------
 function renderSelectivity(t) {
   const s = state.session, pair = s.comparisons[state.split];
   $('runSel').disabled = !pair;
@@ -388,7 +434,7 @@ async function runSelectivity() {
   }
 }
 
-// ---------- rail: region tree ----------
+// ---------- region tree ----------
 function renderTree() {
   const el = $('tree');
   if (!state.tree.length) {
@@ -716,7 +762,7 @@ function renderPairFacts(d) {
   const tests = d.tests.length ? d.tests.map((t) =>
     `<div>${esc(t.pre)} → ${esc(t.post)}: ${t.observed} pairs vs ${t.expected.toFixed(1)} expected, q = ${t.q.toPrecision(2)} · ` +
     `${t.connected ? '<b>putative excitatory connection</b>' : 'not labelled'}</div>`).join('')
-    : '<div>Connection test not run for these units (Connections, in the left rail).</div>';
+    : '<div>Connection test not run for these units (Statistics → Connections).</div>';
   $('pairFacts').innerHTML = close + tests;
 }
 async function plotPair() {
@@ -1018,7 +1064,7 @@ const brain = (() => {
 // The server sends each recipe in this session's task words, greyed out with the reason
 // where the session can't support it. A step's button asks the server to run the manual
 // view's own analysis, then sets the page to the same event, split and trials, so the
-// panels on the left show the very same result. The page computes nothing.
+// workspaces show the very same result. The page computes nothing.
 const PARTS = [['question', 'Question'], ['why', 'Why this answers it'], ['analysis', 'Analysis'],
   ['null_and_correction', 'Null and correction'], ['needs', 'Needs'], ['read', 'How to read it']];
 function partHTML(p) {
@@ -1069,11 +1115,15 @@ async function runRecipeStep(button) {
     if ('split' in q) state.split = $('split').value = q.split;
     if (d.kind === 'decoding') {
       $('decTarget').value = d.target;
+      showWorkspace('statistics');
       await runDecoding(d.recipe);
-      out.textContent = 'Started in the Decoding panel on the left; its verdict line and table appear there and in the Population card.';
+      out.textContent = 'Started in Statistics → Decoding; its verdict line appears there, and its table in Population → Decoding.';
       return;
     }
     if (q.event || 'split' in q) await loadUnits();
+    // Show the result where it lives: the unit view for a split, Statistics for a test.
+    if (d.kind === 'split_view') showWorkspace('explore');
+    else if (['responsiveness', 'movement_locking', 'selectivity'].includes(d.kind)) showWorkspace('statistics');
     const why = d.result?.status === 'exploratory' ? ` (${d.result.why})` : '';
     out.innerHTML = esc(recipeResult(d) + why) + (d.command ? `<code>${esc(d.command)}</code>` : '');
   } catch (e) {
@@ -1083,6 +1133,7 @@ async function runRecipeStep(button) {
   }
 }
 async function openRecipes() {
+  $('recipes').style.top = `${document.querySelector('.topbar').offsetHeight}px`;
   $('recipes').hidden = false;
   $('recipesOpen').setAttribute('aria-expanded', 'true');
   if (!$('recipeList').children.length) {
@@ -1188,6 +1239,7 @@ $('unitImg').addEventListener('click', (e) => {
   const hit = rowAt($('unitImg'), state.unitTrials, state.unitBox, e);
   if (!hit) return;
   openTrial(hit.id);
+  showWorkspace('population');  // the single-trial view lives beside the population views
   $('trialImg').closest('.card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 });
 $('unitTabs').addEventListener('click', (e) => {
@@ -1220,10 +1272,36 @@ for (const id of ['trialAll', 'trialAlign', 'trialPre', 'trialPost', 'trialNeigh
   $(id).addEventListener('change', plotTrial);
 }
 document.addEventListener('keydown', (e) => {
-  if (e.target.closest('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === 'Escape') for (const d of document.querySelectorAll('details.pick[open]')) d.open = false;
+  if (e.target.closest?.('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === 'ArrowLeft') { e.preventDefault(); stepTrial(-1); }
   if (e.key === 'ArrowRight') { e.preventDefault(); stepTrial(+1); }
+  // Up and down step through the units in the table's order; every view follows.
+  if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && state.ws === 'explore') {
+    const rows = [...$('rows').querySelectorAll('tr[data-id]')];
+    if (!rows.length) return;
+    e.preventDefault();
+    const i = rows.findIndex((tr) => tr.dataset.id === state.unit);
+    const next = rows[Math.min(rows.length - 1, Math.max(0, i + (e.key === 'ArrowDown' ? 1 : -1)))];
+    if (next && next.dataset.id !== state.unit) selectUnit(next.dataset.id);
+  }
 });
+$('workspaces').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) showWorkspace(b.dataset.ws); });
+$('logTotal').addEventListener('click', () => {
+  showWorkspace('statistics');
+  $('logList').closest('.card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
+for (const id of ['t0', 't1', 'bin', 'baseline', 'b0', 'b1']) $(id).addEventListener('change', renderWindowChip);
+// One chip open at a time; a click outside closes it.
+for (const d of document.querySelectorAll('details.pick')) {
+  d.addEventListener('toggle', () => {
+    if (d.open) for (const other of document.querySelectorAll('details.pick[open]')) if (other !== d) other.open = false;
+  });
+}
+document.addEventListener('click', (e) => {
+  for (const d of document.querySelectorAll('details.pick[open]')) if (!d.contains(e.target)) d.open = false;
+});
+new ResizeObserver(() => { if (state.session && state.ws === 'explore') renderProbe(); }).observe($('probe'));
 $('popImg').addEventListener('click', (e) => { const hit = popRowAt(e); if (hit) selectUnit(hit.id); });
 
 try { const t = localStorage.getItem('studio-theme'); if (t && t !== 'auto') setTheme(t); } catch { /* ignore */ }
