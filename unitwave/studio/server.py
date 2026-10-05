@@ -130,6 +130,7 @@ from unitwave.studio.entry import (
     complete_phy_path,
     project_path,
     recent_projects,
+    resolve_locations_file,
     resolve_nwb_file,
     resolve_phy_folder,
     resolve_sync_file,
@@ -2052,6 +2053,10 @@ class App:
                     role: str(resolve_sync_file(self.phy_root, str(body[role])))
                     for role in ("sync_probe", "sync_events")
                 }
+            if body.get("locations"):  # step 13b
+                sync["locations"] = str(
+                    resolve_locations_file(self.phy_root, str(body["locations"]))
+                )
             source = Source(kind="phy", folder=str(folder), events=str(events), task=task, **sync)
             name = folder.name
         elif kind == "nwb":
@@ -2286,6 +2291,7 @@ def build_app(argv: list[str]) -> tuple[App, str]:
     ap.add_argument("--events", help="CSV of trial events, seconds on the probe's clock")
     ap.add_argument("--sync-probe", help="with --phy: sync pulses on the probe's clock")
     ap.add_argument("--sync-events", help="with --phy: the same pulses on the events' clock")
+    ap.add_argument("--locations", help="with --phy: channel_locations.json or a .csv")
     ap.add_argument("--nwb", help="an NWB file with sorted units and a trials table")
     ap.add_argument(
         "--layout",
@@ -2328,6 +2334,7 @@ def build_app(argv: list[str]) -> tuple[App, str]:
                 for role, path in (
                     ("sync_probe", args.sync_probe),
                     ("sync_events", args.sync_events),
+                    ("locations", args.locations),
                 )
                 if path
             }

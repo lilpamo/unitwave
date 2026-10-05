@@ -313,13 +313,18 @@ Steinmetz, MC_Maze and drifting gratings are tested as before (docs/DECISIONS.md
 2026-10-05). A paired test within presentations is the way to give flashes an answer.
 It is not built.
 
-### Plan step 13: Phy sync and channel locations — 13a built (2026-10-05); 13b next
+### Plan step 13: Phy sync and channel locations — built (2026-10-05)
 
 Split like step 8.
 - **13a, clock sync: built.** Events on another clock are moved onto the probe's from
   sync pulses (CatGT or IBL files), along a line refused above 1 ms. It reproduces
   IBL's own alignment on d23a44ef within 0.1 ms (docs/DECISIONS.md, "Step 13a").
-- **13b, channel locations: next.** As specified in step 13 below.
+- **13b, channel locations: built.** The IBL alignment GUI's channel_locations.json or
+  a CSV gives each unit its peak channel's region and position. On d23a44ef probe00,
+  all 114 BWM units get the BWM backend's regions and positions exactly
+  (docs/DECISIONS.md, "Step 13b").
+- **Not built:** region summaries across Phy folders (`cli.summarise` reads IBL sets
+  and NWB files).
 
 ### Plan only, don't build yet
 

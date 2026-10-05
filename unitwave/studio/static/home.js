@@ -265,6 +265,7 @@ $('phyOpen').addEventListener('click', () => {
   // Sync pulses (step 13a): both or neither; the server says which is missing.
   const probe = $('phySyncProbe').value.trim(), events = $('phySyncEvents').value.trim();
   if (probe || events) Object.assign(body, { sync_probe: probe, sync_events: events });
+  if ($('phyLocations').value.trim()) body.locations = $('phyLocations').value.trim();  // step 13b
   openData(body, `Phy folder ${$('phyPath').value}`);
 });
 $('projects').addEventListener('click', (e) => { const b = e.target.closest('[data-project]'); if (b) openData({ kind: 'project', name: b.dataset.project }, `project ${b.dataset.project}`); });

@@ -79,6 +79,8 @@
           <div class="inline"><label for="phySyncEvents">Events' clock</label><input id="phySyncEvents" placeholder="e.g. mouse1/run_g0_tcat.nidq.xd_8_3_500.txt" autocomplete="off"></div>
           <p class="note" id="phySyncNote">The same sync pulses recorded on each clock, under the folder root: CatGT edge files (one time per line) or IBL's _spikeglx_sync.times files. The events are moved onto the probe's clock along a line (offset plus drift).</p>
         </details>
+        <div class="inline"><label for="phyLocations">Channel locations</label><input id="phyLocations" placeholder="optional: e.g. mouse1/probe00/channel_locations.json" autocomplete="off"></div>
+        <p class="note">From histology alignment: the IBL alignment GUI's channel_locations.json, or a CSV of channel, ccf_ap_um, ccf_dv_um, ccf_ml_um and acronym. Each unit takes its peak channel's region and position, so the region tree and the brain view work.</p>
         <p class="note" id="phyMsg"></p>
         <h4>Open an NWB file</h4>
         <p class="note" id="nwbRoot"></p>

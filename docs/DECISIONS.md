@@ -6,6 +6,56 @@ first.
 
 ---
 
+### 2026-10-05 — Step 13b: channel locations for Phy folders (`data/channel_locations.py`)
+
+**What (plan step 13, its second part):** histology-aligned channel locations give a
+Phy folder's units brain regions and 3-D positions. The region tree, region levels,
+the probe strip's regions, the brain view and recipe 3 then work on a lab's own
+recordings.
+
+**Files read (as plan step 13 specifies):**
+- **The IBL alignment GUI's `channel_locations.json`:** `channel_N` entries with x, y, z
+  (µm from bregma, IBL's axes), lateral and axial (the channel's place on the probe),
+  brain_region and brain_region_id. The id must name the same region as the acronym;
+  a mismatch is refused, naming the channel.
+- **A CSV:** channel, ccf_ap_um, ccf_dv_um, ccf_ml_um, acronym, and optionally lateral_um
+  and axial_um. CCF positions are converted to IBL's metres from bregma with the
+  inverse of `analysis.atlas.ccf_um`.
+- **Acronyms:** every one must be Allen CCF 2017's, as for NWB files.
+
+**Mine, flagged:**
+- **How a unit finds its channel:** it takes its peak channel (largest peak-to-peak of
+  its main template, as depth already did). That channel is matched to the file by its
+  position on the probe (lateral, axial µm) whenever the file gives positions, so the
+  file's channel numbering needn't match Kilosort's. A file without positions (a CSV
+  without lateral_um and axial_um) is matched by channel number, Phy's channel_map.npy
+  where present.
+- **Refusals:** a unit whose channel isn't in the file is refused ("is it this probe's
+  alignment?"), and so is a folder without templates.
+- **Positions follow IBL's convention** (metres from bregma), as the BWM backend's do, so
+  the brain view needs no second path.
+
+**Where it applies:**
+- **Opening:** the homepage's Phy section has an optional locations field (under the
+  Phy root), and the command line has `--locations`.
+- **The project** records the file's sha256.
+- **The page:** "What this file supports" names the file, or says there are no regions.
+
+**Proven:**
+- **Hand-built cases:** the GUI file and the CSV are read, and the refusals hold.
+- **On d23a44ef probe00:** IBL's own sorting written as a Phy folder (templates peaking
+  on each cluster's channel), with a channel_locations.json from IBL's own alignment
+  files. All 114 units the BWM backend has for probe00 get its acronym and its x, y, z
+  (within 1e-9 m).
+- **Studio:** opening with a locations file gives the region tree, the brain view's units
+  and probe track, the report, and the project hash.
+- **The browser:** that d23a44ef Phy folder showed 161 QC-passing units in 7 Beryl
+  regions, the probe strip (VISam, CA1, DG, LP, Eth, PO), and the 3-D view with its
+  track.
+
+**Not built:** region summaries across Phy folders. `cli.summarise` reads IBL sets and
+NWB files only.
+
 ### 2026-10-05 — Step 13a: clock sync for Phy folders (`data/sync.py`, `configs/sync.yaml`)
 
 **What (plan step 13, its first part):** a Phy folder's events can be on another clock

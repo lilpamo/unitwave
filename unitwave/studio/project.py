@@ -113,7 +113,8 @@ class Source:
     its specifics are declared in: a built-in name, a YAML path, or None for generic);
     task: the task definition, a built-in name or a YAML file's path. A Phy folder may
     also name its sync pulses on each clock (sync_probe, sync_events; data.sync, step
-    13a); projects saved before have neither, and open as before."""
+    13a) and its histology-aligned channel locations (locations; step 13b); projects
+    saved before have none, and open as before."""
 
     kind: str
     eid: str | None = None
@@ -125,6 +126,7 @@ class Source:
     layout: str | None = None
     sync_probe: str | None = None
     sync_events: str | None = None
+    locations: str | None = None
 
     def __post_init__(self):
         needs = {"ibl": ("eid", "backend"), "phy": ("folder", "events"), "nwb": ("file",)}
@@ -136,6 +138,8 @@ class Source:
             raise ValueError("sync needs the pulses on both clocks: the probe's and the events'")
         if self.sync_probe is not None and self.kind != "phy":
             raise ValueError("sync pulses are read for Phy folders only")
+        if self.locations is not None and self.kind != "phy":
+            raise ValueError("channel locations are read for Phy folders only")
 
     @classmethod
     def from_record(cls, record: dict) -> "Source":
@@ -159,10 +163,13 @@ def load_source(source: Source):
             clock = fit_clock(
                 read_pulses(source.sync_probe), read_pulses(source.sync_events), load_sync_config()
             )
-        session = load_session_phy(source.folder, source.events, task=task, clock=clock)
+        session = load_session_phy(
+            source.folder, source.events, task=task, clock=clock, locations=source.locations
+        )
         REPORTS[session.eid] = {
             "kind": "phy",
             "clock": None if clock is None else clock.describe(),
+            "regions": None if source.locations is None else Path(source.locations).name,
         }
         labelled = any((Path(source.folder) / name).exists() for name in PHY_LABEL_FILES)
         return session, load_phy_qc_config() if labelled else load_spike_qc_config()
@@ -185,9 +192,10 @@ def _sha256(path: Path) -> str:
 
 
 def file_hashes(source: Source) -> dict[str, str]:
-    """name -> sha256 of each Phy file present, of the events CSV and of any sync pulse
+    """name -> sha256 of each Phy file present, of the events CSV, of any sync pulse
     files (keyed sync_probe/<name> and sync_events/<name>; IBL's with their channels and
-    polarities), or of the NWB file. {} for IBL."""
+    polarities) and channel locations (locations/<name>), or of the NWB file. {} for
+    IBL."""
     if source.kind == "nwb":
         return {Path(source.file).name: _sha256(Path(source.file))}
     if source.kind != "phy":
@@ -195,7 +203,7 @@ def file_hashes(source: Source) -> dict[str, str]:
     folder = Path(source.folder)
     hashes = {name: _sha256(folder / name) for name in PHY_FILES if (folder / name).exists()}
     hashes[Path(source.events).name] = _sha256(Path(source.events))
-    for role in ("sync_probe", "sync_events"):
+    for role in ("sync_probe", "sync_events", "locations"):
         path = getattr(source, role)
         if path is None:
             continue

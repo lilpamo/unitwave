@@ -4,8 +4,8 @@ projects.
 **Phy folders** are opened only from under a configured root (configs/catalog.yaml,
 `phy_root`). A path is resolved with every symlink followed and must stay inside the
 root, so `../` and symlinks pointing out are refused alike. A folder pairs with the
-`events.csv` beside its `params.py`, and optionally with sync pulse files under the same
-root (step 13a). Missing files get plain-language refusals.
+`events.csv` beside its `params.py`, and optionally with sync pulse files (step 13a) and
+a channel locations file (step 13b) under the same root. Missing files get plain-language refusals.
 
 **NWB files** are opened the same way, only from under `nwb_root` (configs/catalog.yaml).
 
@@ -45,6 +45,22 @@ def resolve_sync_file(root: str | os.PathLike, user_path: str) -> Path:
         raise ValueError(
             f"{path.name} isn't a sync pulse file: give a CatGT edge file (.txt, one time per "
             "line) or IBL's _spikeglx_sync.times file"
+        )
+    return path
+
+
+def resolve_locations_file(root: str | os.PathLike, user_path: str) -> Path:
+    """A channel locations file under the Phy root (data.channel_locations): the IBL
+    alignment GUI's .json or a .csv; else a plain-language refusal."""
+    root = Path(root).expanduser()
+    candidate = Path(user_path).expanduser()
+    path = _inside(root, candidate if candidate.is_absolute() else root / candidate)
+    if not path.is_file():
+        raise ValueError(f"no channel locations file {user_path} under {root}")
+    if path.suffix not in (".json", ".csv"):
+        raise ValueError(
+            f"{path.name} isn't a channel locations file: give the alignment GUI's "
+            "channel_locations.json or a .csv"
         )
     return path
 

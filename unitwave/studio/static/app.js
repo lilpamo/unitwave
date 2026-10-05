@@ -62,7 +62,9 @@ function renderSourceReport(r) {
   if (r.kind === 'phy') {  // a Phy folder's clock (step 13a)
     $('sourceReportBody').innerHTML = `<ul>${r.clock
       ? row('Clock', `events moved onto the probe's clock: ${r.clock}`)
-      : row('Clock', "no sync pulses: the events are taken to be on the probe's clock already", 'gone')}</ul>`;
+      : row('Clock', "no sync pulses: the events are taken to be on the probe's clock already", 'gone')}${r.regions
+      ? row('Regions', `each unit's peak channel in ${r.regions}`)
+      : row('Regions', 'no channel locations: no brain regions or positions', 'gone')}</ul>`;
     return;
   }
   const items = [

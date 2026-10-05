@@ -21,8 +21,9 @@ on the probe's clock, or on another clock with a clock fit from sync pulses
 Without one, the loader refuses events outside the span of the recorded spikes, but
 cannot detect a smaller offset between clocks.
 
-A Phy folder has no brain region, IBL QC label, 3-D position or recording length, so
-those unit fields are declared missing.
+A Phy folder has no IBL QC label or recording length, so those unit fields are declared
+missing. Brain regions and 3-D positions are missing too, unless histology-aligned
+channel locations are given (data.channel_locations, step 13b).
 """
 
 import ast
@@ -32,6 +33,7 @@ import numpy as np
 import pandas as pd
 
 from unitwave.analysis.tasks import TaskDefinition
+from unitwave.data.channel_locations import assign_units, read_channel_locations
 from unitwave.data.session import (
     BEHAVIOUR_FIELDS,
     TRIAL_FIELDS,
@@ -99,10 +101,12 @@ def _groups(folder: Path, cluster_ids: np.ndarray) -> tuple[list, list]:
     return group, source
 
 
-def _depths(folder: Path, order: np.ndarray, starts: np.ndarray, ends: np.ndarray):
-    """(n_clusters,) y position in µm, or None when a template file is absent.
+def _peak_channels(folder: Path, order: np.ndarray, starts: np.ndarray, ends: np.ndarray):
+    """((n_clusters,) each cluster's peak channel, a row of channel_positions; (n_channels,
+    2) channel_positions), or None when a template file is absent.
 
-    order sorts spikes by cluster; cluster i's spikes are order[starts[i]:ends[i]].
+    The peak channel (largest peak-to-peak) of the template most of the cluster's spikes
+    use. order sorts spikes by cluster; cluster i's spikes are order[starts[i]:ends[i]].
     """
     if not all((folder / f).exists() for f in _TEMPLATE_FILES):
         return None
@@ -114,7 +118,7 @@ def _depths(folder: Path, order: np.ndarray, starts: np.ndarray, ends: np.ndarra
     peak_channel = np.ptp(templates, axis=1).argmax(axis=1)  # (n_templates,)
     by_cluster = spike_templates[order]
     dominant = [np.bincount(by_cluster[a:b]).argmax() for a, b in zip(starts, ends)]
-    return positions[peak_channel[dominant], 1]
+    return peak_channel[dominant], positions
 
 
 def _events(
@@ -169,12 +173,15 @@ def load_session_phy(
     probe_name: str | None = None,
     task: TaskDefinition | None = None,
     clock: ClockFit | None = None,
+    locations: str | Path | None = None,
 ) -> Session:
     """Session with one unit per cluster in spike_clusters.npy, ids '<probe_name>_<cluster_id>'.
 
     probe_name defaults to the folder's name. task: the definition the events CSV is read
     with; its columns are accepted besides IBL's (None: IBL's names only). clock: the
     events' clock mapped onto the probe's (data.sync.fit_clock); None: already the same.
+    locations: histology-aligned channel locations (data.channel_locations, step 13b):
+    each unit takes its peak channel's region and position.
     """
     folder = Path(folder)
     probe_name = probe_name or folder.name
@@ -205,11 +212,28 @@ def load_session_phy(
         index=pd.Index(ids, name="unit_id"),
     )
     missing = {f"units.{f}": why for f, why in _UNIT_MISSING.items()}
-    depths = _depths(folder, order, starts, ends)
-    if depths is None:
+    peaks = _peak_channels(folder, order, starts, ends)
+    if peaks is None:
         missing["units.depths"] = f"needs all of {list(_TEMPLATE_FILES)} in the folder"
     else:
-        units["depths"] = depths
+        units["depths"] = peaks[1][peaks[0], 1]
+    if locations is not None:
+        if peaks is None:
+            raise ValueError(
+                f"{folder}: channel locations need templates.npy, spike_templates.npy and "
+                "channel_positions.npy, to find each unit's peak channel"
+            )
+        channel_map = folder / "channel_map.npy"
+        placed = assign_units(
+            read_channel_locations(locations),
+            peaks[1],
+            peaks[0],
+            np.load(channel_map).ravel() if channel_map.exists() else None,
+            Path(locations).name,
+        )
+        for column in ("acronym", "x", "y", "z"):
+            units[column] = placed[column].to_numpy()
+            missing.pop(f"units.{column}")
 
     span = (float(times.min()), float(times.max()))
     trials = _events(events_csv, span, task, clock)
