@@ -83,7 +83,7 @@ function renderSourceReport(r) {
 // ---------- workspaces and the context bar (redesign) ----------
 // Three workspaces share one session and one set of settings; switching only shows
 // another. The choice is remembered in this browser, not in the project file.
-const WORKSPACES = ['explore', 'population', 'statistics'];
+const WORKSPACES = ['explore', 'population', 'trials', 'statistics'];
 function showWorkspace(ws) {
   if (!WORKSPACES.includes(ws)) ws = 'explore';
   state.ws = ws;
@@ -92,6 +92,7 @@ function showWorkspace(ws) {
   try { localStorage.setItem('studio-ws', ws); } catch { /* storage may be unavailable */ }
   if (ws === 'explore' && state.session) renderProbe();  // the strip measures its box
   if (ws === 'statistics') refreshLog();
+  if (ws === 'trials' && state.session) loadStrip();
 }
 // The chips say what every view uses; their controls are inside them.
 function renderWindowChip() {
@@ -129,6 +130,8 @@ async function init() {
   $('spikeQcHead').hidden = !own;
   for (const [k, v] of Object.entries(s.events)) $('event').add(new Option(v, k));
   for (const [k, v] of Object.entries(s.conditions)) $('split').add(new Option(v, k));
+  $('stripColour').add(new Option('None', 'none'));
+  for (const [k, v] of Object.entries(s.conditions)) $('stripColour').add(new Option(v, k));
   const noRegion = s.missing['units.acronym'];
   // Start from the project's saved view: settings only; every number is recomputed.
   const v = s.project.view;
@@ -242,6 +245,7 @@ async function loadUnits() {
   state.rows = d.units;
   state.tree = d.tree;
   renderUnitsChip();
+  if (state.ws === 'trials') loadStrip();  // the trial filters may have changed
   renderTest(d.test);
   renderSelectivity(d.selectivity);
   renderLocking(d.locking);
@@ -873,6 +877,54 @@ function openTrial(k) {
   if (k == null || Number.isNaN(k)) return;
   state.trial = k;
   plotTrial();
+  renderStrip();
+}
+
+// ---------- the Trials workspace's strip ----------
+// Every trial, from /api/trials: bar height its reaction time (0 to 1 s, full height
+// beyond), colour its level of the chosen condition, faint when the trial filters drop
+// it. Click one to open it. The page draws; the server gives every value.
+const STRIP_RT_MAX = 1;  // seconds at full bar height (longer: full height); a drawing scale only
+async function loadStrip() {
+  try {
+    // Until a colour is chosen the server's default holds: the split, then the outcome.
+    state.strip = await getJSON('/api/trials?' + params({ colour: state.stripColour || '' }));
+  } catch (e) {
+    $('stripMeta').textContent = e.message.replace(/^Cannot show this: /, '');
+    return;
+  }
+  const d = state.strip;
+  $('stripColour').value = d.condition ? d.condition.name : 'none';
+  $('stripMeta').textContent = `${d.n_kept} of ${d.n} trials kept · ` +
+    (d.rt_label ? `bar height: ${d.rt_label}, 0 to ${STRIP_RT_MAX} s (longer: full)` : 'no reaction times in this task') +
+    ' · click a trial to open it; ← → step';
+  $('stripLegend').innerHTML = d.levels.map((l) => `<span class="item"><span class="sw" style="background:${l.colour}"></span>${esc(l.name)}</span>`).join('') +
+    '<span class="item"><span class="sw" style="background:var(--muted);opacity:.3"></span>faint: dropped by the trial filters</span>';
+  if (state.trial == null && d.first_kept != null) openTrial(d.first_kept);  // never blank
+  else renderStrip();
+}
+function renderStrip() {
+  const d = state.strip, svg = $('strip');
+  if (!d || state.ws !== 'trials') return;
+  const W = svg.clientWidth || 800, H = svg.clientHeight || 104, base = H - 14, top = 4;
+  const bw = W / Math.max(1, d.n);
+  const colour = Object.fromEntries(d.levels.map((l) => [l.value, l.colour]));
+  const muted = css('--muted');
+  const bars = d.trials.map((t) => {
+    const frac = t.rt_s == null ? 0.5 : Math.min(Math.max(t.rt_s, 0), STRIP_RT_MAX) / STRIP_RT_MAX;
+    const h = Math.max(2, frac * (base - top));
+    return `<rect x="${(t.i * bw).toFixed(2)}" y="${(base - h).toFixed(2)}" width="${Math.max(bw - (bw > 3 ? 1 : 0), 0.6).toFixed(2)}" height="${h.toFixed(2)}" ` +
+      `fill="${t.level != null && colour[t.level] ? colour[t.level] : muted}" opacity="${t.kept ? 1 : 0.22}"/>`;
+  }).join('');
+  const cur = state.trial == null ? '' : `<rect class="cur" x="${(state.trial * bw - 1).toFixed(2)}" y="1" width="${(Math.max(bw, 2) + 2).toFixed(2)}" height="${base}"/>`;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = bars + cur + `<text x="0" y="${H - 2}">trial 0</text><text x="${W}" y="${H - 2}" text-anchor="end">trial ${d.n - 1}</text>`;
+}
+function stripTrialAt(e) {
+  const d = state.strip, r = $('strip').getBoundingClientRect();
+  if (!d) return null;
+  const i = Math.floor(((e.clientX - r.left) / r.width) * d.n);
+  return d.trials[Math.min(d.n - 1, Math.max(0, i))];
 }
 function stepTrial(direction) {
   const nav = state.trialNav;
@@ -1239,7 +1291,7 @@ $('unitImg').addEventListener('click', (e) => {
   const hit = rowAt($('unitImg'), state.unitTrials, state.unitBox, e);
   if (!hit) return;
   openTrial(hit.id);
-  showWorkspace('population');  // the single-trial view lives beside the population views
+  showWorkspace('trials');  // the single-trial view has its own workspace
   $('trialImg').closest('.card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 });
 $('unitTabs').addEventListener('click', (e) => {
@@ -1302,6 +1354,22 @@ document.addEventListener('click', (e) => {
   for (const d of document.querySelectorAll('details.pick[open]')) if (!d.contains(e.target)) d.open = false;
 });
 new ResizeObserver(() => { if (state.session && state.ws === 'explore') renderProbe(); }).observe($('probe'));
+new ResizeObserver(renderStrip).observe($('strip'));
+$('stripColour').addEventListener('change', () => { state.stripColour = $('stripColour').value; loadStrip(); });
+$('strip').addEventListener('click', (e) => { const t = stripTrialAt(e); if (t) openTrial(t.i); });
+$('strip').addEventListener('mousemove', (e) => {
+  const t = stripTrialAt(e), tip = $('stripTip'), d = state.strip;
+  tip.hidden = !t;
+  if (!t) return;
+  const level = d.levels.find((l) => l.value === t.level);
+  tip.textContent = `Trial ${t.i}` + (d.condition ? ` · ${level ? level.name : `no ${d.condition.label.toLowerCase()}`}` : '') +
+    (d.rt_label ? ` · ${t.rt_s == null ? 'no reaction time' : `${Math.round(t.rt_s * 1000)} ms`}` : '') +
+    ` · ${t.kept ? 'kept' : `dropped: ${t.why.join(', ')}`}`;
+  const r = $('strip').getBoundingClientRect();
+  tip.style.left = `${e.clientX - r.left}px`;
+  tip.style.top = `${e.clientY - r.top}px`;
+});
+$('strip').addEventListener('mouseleave', () => { $('stripTip').hidden = true; });
 $('popImg').addEventListener('click', (e) => { const hit = popRowAt(e); if (hit) selectUnit(hit.id); });
 
 try { const t = localStorage.getItem('studio-theme'); if (t && t !== 'auto') setTheme(t); } catch { /* ignore */ }

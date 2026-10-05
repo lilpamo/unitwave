@@ -71,6 +71,7 @@ from unitwave.analysis.movement import (
     load_movement_config,
     movement_free,
     movement_locking,
+    reaction_times,
     wheel_speed_psth,
 )
 from unitwave.analysis.psth import (
@@ -1524,6 +1525,75 @@ class Studio:
             "n_total": len(keep),
         }
 
+    def trials_json(self, q: dict) -> dict:
+        """Every trial for the Trials workspace's strip: kept by the page's trial filter
+        or not (with the reasons), its reaction time, and its level of a condition
+        (q["colour"]; default the split, then the task's outcome; "none" for none), with
+        the page's colours for those levels. The page only draws it."""
+        trials = self.session.trials
+        sel = self._trials(q)[1]
+        name = (
+            q.get("colour")
+            or q.get("split")
+            or ("outcome" if "outcome" in self.task.conditions else "")
+        )
+        if name == "none":
+            name = ""
+        if name and name not in self.task.conditions:
+            raise ValueError(
+                f"unknown condition {name!r}; available: {sorted(self.task.conditions)}"
+            )
+        level, levels = np.full(len(trials), np.nan), []
+        if name:
+            c = condition(trials, name, self.task)
+            level = c.values
+            colours = self._colours(name, c.levels, q.get("theme", "light"), for_axis=True)
+            levels = [
+                {"value": float(v), "name": n, "colour": col}
+                for v, n, col in zip(c.levels, c.names, colours)
+            ]
+        rt = np.full(len(trials), np.nan)
+        m = self.task.movement
+        if m is not None and self._has_movement_times():
+            rt = reaction_times(trials, self.task)
+        start = trials["intervals_0"].to_numpy(np.float64)
+        rows = [
+            {
+                "i": i,
+                "start_s": float(start[i]),
+                "kept": bool(sel.mask[i]),
+                "why": [r for r, failed in sel.failed.items() if failed[i]],
+                "rt_s": None if np.isnan(rt[i]) else float(rt[i]),
+                "level": None if np.isnan(level[i]) else float(level[i]),
+            }
+            for i in range(len(trials))
+        ]
+        kept = np.flatnonzero(sel.mask)
+        return {
+            "n": len(trials),
+            "n_kept": sel.n_kept,
+            "first_kept": int(kept[0]) if kept.size else None,
+            "condition": (
+                {"name": name, "label": self.task.conditions[name].label} if name else None
+            ),
+            "levels": levels,
+            "rt_label": (
+                None
+                if m is None
+                else f"{self.task.events[m.movement].label} − {self.task.events[m.stimulus].label}".lower()
+            ),
+            "trials": rows,
+        }
+
+    def _has_movement_times(self) -> bool:
+        """Whether this session's trials hold the task's movement and stimulus times."""
+        m = self.task.movement
+        return m is not None and all(
+            c in self.session.trials
+            for e in (m.stimulus, m.movement)
+            for c in self.task.events[e].columns
+        )
+
     def trial_png(self, q: dict) -> tuple[bytes, dict]:
         d = self.trial_data(q)
         view = d["view"]
@@ -2141,6 +2211,7 @@ _SESSION_ROUTES = {
     "/api/locking": ("application/json", "locking_json"),
     "/api/wheel.png": ("image/png", "wheel_png"),
     "/api/trial": ("application/json", "trial_json"),
+    "/api/trials": ("application/json", "trials_json"),
     "/api/trial.png": ("image/png", "trial_png"),
     "/api/quality": ("application/json", "quality_json"),
     "/api/connections": ("application/json", "connections_json"),

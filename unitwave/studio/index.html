@@ -27,7 +27,7 @@
     </div>
   </details>
   <div class="seg workspaces" id="workspaces" role="tablist" aria-label="Workspace">
-    <button data-ws="explore" role="tab" aria-pressed="true">Explore</button><button data-ws="population" role="tab" aria-pressed="false">Population</button><button data-ws="statistics" role="tab" aria-pressed="false">Statistics</button>
+    <button data-ws="explore" role="tab" aria-pressed="true">Explore</button><button data-ws="population" role="tab" aria-pressed="false">Population</button><button data-ws="trials" role="tab" aria-pressed="false">Trials</button><button data-ws="statistics" role="tab" aria-pressed="false">Statistics</button>
   </div>
   <button class="btn" id="recipesOpen" aria-expanded="false" aria-controls="recipes" title="Guided analyses: one question, step by step">Recipes</button>
   <div class="spacer"></div>
@@ -147,7 +147,7 @@
       </section>
   </div>
 
-  <!-- Population: every shown unit together, and one trial at a time. -->
+  <!-- Population: every shown unit together. -->
   <div class="ws ws-population" id="ws-population" hidden>
       <section class="card area-pop">
         <header><h3>Population</h3>
@@ -185,6 +185,17 @@
           <p class="note" id="decNull"></p>
         </div>
       </section>
+
+  </div>
+
+  <!-- Trials: every trial at a glance, and one trial at a time, full width. -->
+  <div class="ws ws-trials" id="ws-trials" hidden>
+    <section class="card area-strip">
+      <header><h3>All trials</h3><span class="meta" id="stripMeta"></span>
+        <label class="ctl">Colour by <select id="stripColour" aria-label="Colour the trials by"></select></label></header>
+      <div class="stripwrap"><svg id="strip" role="img" aria-label="Every trial: kept or filtered out, reaction time and condition; click one to open it"></svg><div class="tip" id="stripTip" hidden></div></div>
+      <div class="legend" id="stripLegend"></div>
+    </section>
       <section class="card area-trial">
         <header><h3>Trial</h3><span class="meta" id="trialPlace"></span></header>
         <div class="trialbar">

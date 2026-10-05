@@ -21,7 +21,7 @@ their events CSV provides.
 """
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -256,13 +256,15 @@ class TrialFilter:
 @dataclass(frozen=True)
 class TrialSelection:
     """mask: (n_trials,) kept trials. excluded: reason -> trials failing it (a trial
-    failing several filters is counted under each, and once in n_excluded)."""
+    failing several filters is counted under each, and once in n_excluded). failed:
+    reason -> (n_trials,) bool, which trials failed it (for the Trials workspace)."""
 
     mask: np.ndarray
     n_total: int
     n_kept: int
     n_excluded: int
     excluded: dict[str, int]
+    failed: dict[str, np.ndarray] = field(default_factory=dict)
 
 
 def available_trial_filters(
@@ -335,4 +337,5 @@ def apply_trial_filter(trials: pd.DataFrame, f: TrialFilter) -> TrialSelection:
     for failed in reasons.values():
         dropped |= failed
     excluded = {r: int(v.sum()) for r, v in reasons.items() if v.any()}
-    return TrialSelection(~dropped, n, int((~dropped).sum()), int(dropped.sum()), excluded)
+    failed = {r: v for r, v in reasons.items() if v.any()}
+    return TrialSelection(~dropped, n, int((~dropped).sum()), int(dropped.sum()), excluded, failed)

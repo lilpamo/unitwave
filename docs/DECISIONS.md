@@ -6,6 +6,40 @@ first.
 
 ---
 
+### 2026-10-05 — A Trials workspace (`studio/server.trials_json`, `analysis/conditions.TrialSelection.failed`)
+
+**Asked by the user:** where to see the whole single-trial raster. It sat half-width
+beside the heatmap, blank until a trial was picked. **Chosen:** its own workspace (one of
+four options offered).
+
+**The workspace:**
+- **A strip of every trial** across the top:
+  - **Bar height:** the reaction time (the task's movement minus its stimulus), drawn
+    from 0 to 1 s; longer bars are full height.
+  - **Colour:** the trial's level of a chosen condition, with the page's split colours.
+    The default is the split, then the task's outcome; it can be none.
+  - **Faint bars:** trials the trial filters drop.
+  - **Interaction:** hovering names the trial, its level, reaction time, and whether it
+    was kept or why it was dropped. A click opens it.
+- **The single-trial view below it, full width.** It opens on the first kept trial, never
+  blank; ← → step as before.
+- **From Explore:** clicking a raster row opens that trial here.
+- **Population** now holds only the population views, at most 820 px wide so the
+  heatmap stays readable.
+
+**What the server gives** (`/api/trials`): every trial's index, start, kept or not and
+the reasons it failed, reaction time, and level, with the level names and colours. The
+page only maps them to bars.
+- **Per-trial reasons:** `apply_trial_filter` now also keeps, per reason, which trials
+  failed it (`TrialSelection.failed`, optional). Its counts are unchanged.
+
+**Checked:**
+- **Tests:** the per-trial reasons on hand-built trials. On d23a44ef: all 410 trials, 290
+  kept, the reaction times equal `analysis.movement.reaction_times`, choice's level names
+  and colours, and the default colour order.
+- **The browser:** the strip coloured by outcome, a click opening trial 205, its tooltip,
+  and a raster-row click in Explore landing in Trials.
+
 ### 2026-10-05 — Homepage redesign, and the homepage layout the session redesign broke (`studio/home.html`, `static/home.css`, `static/home.js`)
 
 **A regression fixed first:** the session page redesign (3272f83, already pushed) removed

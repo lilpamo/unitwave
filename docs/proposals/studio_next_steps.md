@@ -339,7 +339,7 @@ Asked by the user: the layout should follow how a neuroscientist reads a session
 
 ### Next, chosen by the user (2026-10-05)
 
-1. **A Trials workspace:**
+1. **A Trials workspace: built (2026-10-05)** (docs/DECISIONS.md, "A Trials workspace"):
    - a full-width tab for reading single trials;
    - a strip of every trial along the top (outcome, reaction time, kept or filtered) to
      jump through them;
