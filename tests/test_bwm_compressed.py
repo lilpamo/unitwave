@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 
 import numpy as np
@@ -7,16 +6,17 @@ import pandas as pd
 import pytest
 from numcodecs import Blosc
 
-from neurodecoder.data.backends.bwm_compressed import (
+from unitwave.data.backends.bwm_compressed import (
     _decode_spike_shard,
     _split_by_unit,
     load_session_bwm,
 )
-from neurodecoder.data.backends.dandi_nwb import load_session_nwb
-from neurodecoder.data.session import TRIAL_FIELDS
+from unitwave.data.backends.dandi_nwb import load_session_nwb
+from unitwave.data.session import TRIAL_FIELDS
+from unitwave.env import env
 
 EID = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
-DATA_ROOT = Path(os.environ.get("NEURODECODER_DATA_ROOT", "~/data/neurodecoder")).expanduser()
+DATA_ROOT = Path(env("DATA_ROOT", "~/data/neurodecoder")).expanduser()
 BWM_ROOT = DATA_ROOT / "bwm_compressed/bwm_ephys/1.2.1"
 NWB_PATH = (
     DATA_ROOT

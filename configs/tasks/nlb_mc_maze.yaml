@@ -1,0 +1,83 @@
+# Delayed center-out reaching through mazes (Churchland lab), as the Neural Latents
+# Benchmark MC_Maze files hold it (configs/nwb/nlb_mc_maze.yaml). A target appears, a
+# go cue follows after a delay, and the monkey reaches. Times are seconds; the file's
+# rt and delay columns are milliseconds and aren't read here (the times give both).
+# Checked on MC_Maze_Small (docs/DECISIONS.md, "Step 7"). Schema: unitwave/analysis/tasks.py.
+name: nlb_mc_maze
+label: Delayed reaching through mazes (MC_Maze)
+required_columns: [intervals_0, intervals_1, target_on_time, go_cue_time, move_onset_time]
+
+events:
+  target_on: {label: Target onset, column: target_on_time}
+  go_cue: {label: Go cue, column: go_cue_time}
+  move_onset: {label: Movement onset, column: move_onset_time}
+
+trial_view_events:
+  target_on_time: target on
+  go_cue_time: go cue
+  move_onset_time: movement onset
+
+conditions:
+  maze:
+    label: Maze
+    type: categorical
+    column: maze_id
+    level_format: "maze {v:g}"
+    excluded: trials without a maze
+  targets:
+    label: Targets shown
+    type: categorical
+    column: num_targets
+    level_names: {1: one target, 3: three targets}
+    excluded: trials without a target count
+  barriers:
+    label: Barriers
+    type: categorical
+    column: num_barriers
+    level_names: {0: no barriers, 9: barriers}
+    excluded: trials without a barrier count
+  delay:
+    label: Delay (target to go cue)
+    type: continuous
+    derive: {name: median_split_difference, columns: [go_cue_time, target_on_time]}
+    excluded: trials without a target or go-cue time
+  reaction_time:
+    label: Reaction time
+    type: continuous
+    derive: {name: median_split_difference, columns: [move_onset_time, go_cue_time]}
+    excluded: trials without a go cue or movement onset
+
+strata:
+  maze: {condition: maze}
+
+# Each maze fixes its targets and barriers, so neither can be permuted within a maze:
+# these nulls are plain permutations, and a difference may be the reach's, not the
+# count's. Rates over the 300 ms after the chosen event.
+comparisons:
+  targets:
+    levels: [1, 3]
+    null_model: {permute: all}
+  barriers:
+    levels: [0, 9]
+    null_model: {permute: all}
+
+# Reaction time = movement onset - go cue, permuted within each maze.
+movement:
+  stimulus: go_cue
+  movement: move_onset
+  strata: maze
+
+behaviour:
+  traces: [hand_speed]
+
+trialstruct: [maze_id, num_targets, num_barriers]
+
+# Mazes to keep: nine mazes are more than the 8 colours a split can show, so a split by
+# maze needs 8 or fewer chosen here (step 8b).
+trial_filters:
+  mazes:
+    label: Mazes
+    kind: select
+    column: maze_id
+    level_format: "maze {v:g}"
+    reason: maze not selected

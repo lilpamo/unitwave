@@ -6,8 +6,8 @@ import pytest
 from sklearn.linear_model import Ridge
 from sklearn.metrics import r2_score, roc_auc_score
 
-from neurodecoder.evaluation.contract import SessionData
-from neurodecoder.models.baselines.features import (
+from unitwave.evaluation.contract import SessionData
+from unitwave.models.baselines.features import (
     BaselineConfig,
     CVConfig,
     chunk_features,
@@ -15,7 +15,7 @@ from neurodecoder.models.baselines.features import (
     gapped_folds,
     load_baseline_config,
 )
-from neurodecoder.models.baselines.linear import (
+from unitwave.models.baselines.linear import (
     GramSums,
     LogisticDecoder,
     RidgeDecoder,

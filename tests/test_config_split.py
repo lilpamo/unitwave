@@ -1,15 +1,15 @@
 import dataclasses
-import os
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
-from neurodecoder.data.manifest import Manifest
-from neurodecoder.preprocess.binning import PreprocConfig
-from neurodecoder.qc.units import UnitQC
-from neurodecoder.splits.guards import assert_split_valid
-from neurodecoder.splits.registry import held_out_config, load_split, save_split
+from unitwave.data.manifest import Manifest
+from unitwave.env import env
+from unitwave.preprocess.binning import PreprocConfig
+from unitwave.qc.units import UnitQC
+from unitwave.splits.guards import assert_split_valid
+from unitwave.splits.registry import held_out_config, load_split, save_split
 
 PREPROC = PreprocConfig(bin_ms=20, qc=UnitQC(1.0, ("void", "root"), 0.1))
 PROVENANCE = {"manifest_version": 1, "sources": {"bwm_ephys": "1.2.1", "bwm_behavior": "2.0.0"}}
@@ -132,7 +132,7 @@ def test_config_split_round_trips(tmp_path):
     assert load_split(save_split(split, tmp_path / "config.json")) == split
 
 
-DATA_ROOT = Path(os.environ.get("NEURODECODER_DATA_ROOT", "~/data/neurodecoder")).expanduser()
+DATA_ROOT = Path(env("DATA_ROOT", "~/data/neurodecoder")).expanduser()
 EPHYS = DATA_ROOT / "bwm_compressed/bwm_ephys/1.2.1"
 BEHAVIOUR = DATA_ROOT / "bwm_compressed/bwm_behavior/2.0.0"
 DERIVED = DATA_ROOT / "derived"
@@ -143,8 +143,8 @@ DERIVED = DATA_ROOT / "derived"
     reason="BWM releases and task-rate table not available",
 )
 def test_real_config_split_spreads_over_every_lab():
-    from neurodecoder.data.manifest import build_manifest
-    from neurodecoder.qc.task_rates import release_units
+    from unitwave.data.manifest import build_manifest
+    from unitwave.qc.task_rates import release_units
 
     manifest = build_manifest(EPHYS, BEHAVIOUR)
     split = held_out_config(manifest, release_units(EPHYS, DERIVED), PREPROC)

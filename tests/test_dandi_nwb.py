@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -6,8 +5,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from neurodecoder.data.backends import dandi_nwb
-from neurodecoder.data.backends.dandi_nwb import (
+from unitwave.data.backends import dandi_nwb
+from unitwave.data.backends.dandi_nwb import (
     _is_url,
     _keypoint_name,
     _map_choice,
@@ -17,9 +16,10 @@ from neurodecoder.data.backends.dandi_nwb import (
     dandi_asset_url,
     load_session_nwb,
 )
+from unitwave.env import env
 
 EID = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
-DATA_ROOT = Path(os.environ.get("NEURODECODER_DATA_ROOT", "~/data/neurodecoder")).expanduser()
+DATA_ROOT = Path(env("DATA_ROOT", "~/data/neurodecoder")).expanduser()
 NWB_PATH = (
     DATA_ROOT
     / "dandi/000409/sub-DY-016"
@@ -28,8 +28,8 @@ NWB_PATH = (
 
 needs_nwb = pytest.mark.skipif(not NWB_PATH.exists(), reason=f"real NWB file not at {NWB_PATH}")
 needs_network = pytest.mark.skipif(
-    os.environ.get("NEURODECODER_NETWORK_TESTS") != "1",
-    reason="set NEURODECODER_NETWORK_TESTS=1 to stream from DANDI",
+    env("NETWORK_TESTS") != "1",
+    reason="set UNITWAVE_NETWORK_TESTS=1 to stream from DANDI",
 )
 # Same blob (same SHA-256) as the local file, in DANDI 000409 version 0.260309.1324.
 S3_URL = "https://dandiarchive.s3.amazonaws.com/blobs/d0f/ba3/d0fba38f-324e-4bec-b111-95365c2617b1"

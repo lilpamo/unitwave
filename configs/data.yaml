@@ -1,5 +1,6 @@
 # Where the data lives. Paths are relative to data_root, which the
-# NEURODECODER_DATA_ROOT environment variable overrides.
+# UNITWAVE_DATA_ROOT environment variable overrides (the old name
+# NEURODECODER_DATA_ROOT still works). The folder keeps its old name.
 data_root: ~/data/neurodecoder
 bwm_ephys: bwm_compressed/bwm_ephys/1.2.1
 bwm_behavior: bwm_compressed/bwm_behavior/2.0.0

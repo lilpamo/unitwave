@@ -1,0 +1,29 @@
+# Responsiveness test (unitwave/analysis/responsiveness.py; docs/DECISIONS.md,
+# 2026-09-30). Windows are seconds relative to the event, half-open [start, stop).
+
+# Statistic: mean over trials of (response rate - baseline rate), two-sided.
+baseline_window: [-0.2, 0.0]
+response_window: [0.0, 0.3]
+# Spike times and window edges are placed on this grid; every circular shift of the
+# spike train along it is one draw of the null. Windows must be whole multiples of it.
+# 5 ms: on d23a44ef stimulus onset, 320 of 390 units responsive, vs 321 at 1 ms and
+# 322 at 2 ms (2 verdicts differ between 2 and 5 ms), in 11 s instead of 52 s at 1 ms.
+grid_s: 0.005
+# Shifts closer than this to zero (either way round) keep events near their own
+# response and are excluded from the null. Longer than one IBL trial.
+min_shift_s: 10.0
+# Benjamini-Hochberg false discovery rate across the units tested together.
+alpha: 0.05
+# Periodic presentations (the user's decision, 2026-10-05; docs/NEGATIVE_RESULTS.md, the
+# entries of 2026-10-02 and 2026-10-05). The shift null can't separate a response from
+# a stimulus cycle, so such presentations are refused, saying why; the null is unchanged.
+# A shift's self-overlap is the mean, over events, of the other event onsets within the
+# windows' span (baseline start to response end) of each shifted event. Above this, the
+# shift lines the presentations up with themselves (IBL never exceeds 0.29).
+max_self_overlap: 0.5
+# Refused when more than this fraction of the null's shifts do (Allen flashes 50%;
+# drifting gratings 15%, MC_Maze 1%, IBL and Steinmetz 0% keep the test).
+max_realigned_fraction: 0.25
+# Refused when more than this fraction of events have another event within the
+# windows' span: each baseline falls in the previous response (static gratings, 0.25 s).
+max_close_fraction: 0.5

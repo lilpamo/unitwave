@@ -1,0 +1,123 @@
+# Recipe 2 (step 9; wording approved by the user 2026-10-03,
+# docs/proposals/recipe_wording.md). Schema and placeholders: unitwave/analysis/recipes.py.
+# {words} come from the task definition, {numbers} from the configs.
+name: choice_beyond_stimulus
+number: 2
+title: Does activity carry {choice} information beyond the {stimulus}?
+needs:
+  stimulus: stim_on
+  comparison: choice
+steps:
+  - id: split
+    title: Do the trials split by {choice} look different?
+    run: {kind: split_view}
+    question: >-
+      Around the {stimulus}, do trials with a {choice_b} and a {choice_a} {choice} show
+      different rates?
+    why: >-
+      It is the plain look, before any test: a split PSTH shows when, and how much, the
+      two kinds of trials differ.
+    analysis: >-
+      The raster and PSTH of one unit, split by {choice}, aligned to {stimulus_onset},
+      on the page's window and bins, with each group's trial count.
+    null_and_correction: None. This step is descriptive and makes no claim.
+    needs: >-
+      Trials with a {choice}. The rest are excluded and counted: {choice_excluded}.
+    read:
+      text: A gap between the two curves shows a difference, not its cause.
+      points:
+        - lead: "On correct trials the {choice} follows the {stimulus}:"
+          text: >-
+            a unit that only responds to the {stimulus} shows a gap here too. Step 2
+            separates the two.
+        - lead: "Units picked by eye from this view are selected on the data shown:"
+          text: a test on them afterwards isn't independent.
+
+  - id: selective
+    title: Which units separate {choice} at a fixed {stimulus}?
+    run: {kind: selectivity}
+    question: >-
+      Among trials with the same {stimulus}, does the unit's rate tell the {choice}
+      apart?
+    why: >-
+      Shuffling the {choice} only among trials with the same {stimulus} keeps the
+      {stimulus} as it was. What's left to separate is the {choice}.
+    analysis: >-
+      The selectivity test for {choice}, at {stimulus_onset}. The statistic is the AUROC
+      between {choice_b} and {choice_a} trials, on each trial's rate 0 to
+      {response_after} after the event (configs/selectivity.yaml).
+    null_and_correction: >-
+      {choice} labels permuted {sel_permutations} times within {choice_strata} strata
+      (seed {sel_seed}). Two-sided, with Benjamini–Hochberg across the units tested
+      (α = {alpha}). Each {choice} needs at least {min_trials} trials, or the test is
+      refused.
+    needs: >-
+      Trials with a {choice} and a {stimulus}. Others are excluded and counted.
+    read:
+      text: >-
+        A selective unit tells the {choice} apart beyond what the {stimulus} alone
+        explains.
+      points:
+        - lead: "It does not separate the {choice} from the movement that reports it:"
+          text: >-
+            the {choice} is the direction the animal turns. Within the window, a unit may
+            follow the turn, not the decision.
+        - lead: "It does not show when the information appears:"
+          text: one window is tested.
+        - lead: "Trials are treated as interchangeable within a {stimulus}:"
+          text: slow drifts in a unit's rate are not accounted for.
+
+  - id: decode
+    title: Can the {choice} be read out beyond what the task alone predicts?
+    run: {kind: decoding}
+    question: >-
+      Do the session's units predict the {choice} better than the task's own variables
+      do, with no spikes?
+    why: >-
+      The no-spikes baseline already knows the current {stimulus}, the last
+      {history_trials} trials' stimuli, choices and outcomes, and on IBL the block
+      prior. Spikes that beat it carry {choice} information beyond all of these.
+    analysis:
+      text: "The decoding run for {choice}:"
+      points:
+        - lead: "Its window:"
+          text: "{decoding_window}."
+        - lead: "The model:"
+          text: >-
+            a logistic decoder on the QC-passing units' binned counts, trained on the
+            early {train_percent} of trials and tested on the late {test_percent}, with a
+            {gap} gap (configs/studio_decoding.yaml).
+        - lead: "Its rows, in the contract's order:"
+          text: >-
+            the shuffle null, the no-spikes baseline, the linear baseline, the model and
+            the within-session ceiling, with balanced accuracy and AUROC. On one session
+            the linear baseline, the model and the ceiling are the same decoder, and the
+            multi-session baseline isn't run (the table says so).
+    null_and_correction:
+      points:
+        - lead: "Against the shuffle null:"
+          text: targets circularly shifted {n_shifts} times within the session.
+        - lead: "Against the no-spikes baseline:"
+          text: >-
+            the gap is checked with a paired bootstrap over the test trials,
+            {n_bootstrap} draws.
+        - lead: "Correction:"
+          text: Benjamini–Hochberg across the comparisons (α = {decoding_alpha}).
+        - lead: "The verdict line:"
+          text: says plainly whether the model beat both.
+    needs: >-
+      A decoding target on {choice} (IBL: Brain Wide Map sessions only), and enough
+      trials of each {choice} in both halves.
+    read:
+      text: >-
+        Beating the no-spikes baseline means the spikes add {choice} information to what
+        the task variables give.
+      points:
+        - lead: "It does not say which units carry it,"
+          text: or in which region.
+        - lead: "It is one session:"
+          text: whether it holds in other sessions is a separate question.
+        - lead: "It doesn't separate decision from movement:"
+          text: the window ends at the movement, so its preparation can carry the {choice}.
+        - lead: "Not beating the baseline is not proof of no information:"
+          text: a linear readout over a short window can miss it.

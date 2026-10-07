@@ -1,0 +1,11 @@
+# Movement controls (unitwave/analysis/movement.py; docs/DECISIONS.md, 2026-09-30).
+# Windows are seconds relative to each trial's first movement, half-open [start, stop).
+
+# Movement locking: mean over trials of (rate in post_window - rate in pre_window)
+# around the trial's own first movement, against reaction times permuted within
+# signed-contrast strata.
+pre_window: [-0.2, 0.0]
+post_window: [0.0, 0.2]
+# 10000 keeps the smallest p (1/10001) below alpha / n_units for ~400 units under BH.
+n_permutations: 10000
+seed: 0

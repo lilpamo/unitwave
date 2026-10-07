@@ -1,17 +1,17 @@
-import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from neurodecoder.data.backends.one_backend import (
+from unitwave.data.backends.one_backend import (
     SORTER_REVISION,
     TRIALS_REVISION,
     _probe_collections,
     load_session_one,
 )
-from neurodecoder.data.session import TRIAL_FIELDS
+from unitwave.data.session import TRIAL_FIELDS
+from unitwave.env import env
 
 EID = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
 
@@ -176,7 +176,7 @@ def test_spike_cluster_index_out_of_range_raises():
         load_session_one(EID, _fake_one(objects=objects))
 
 
-DATA_ROOT = Path(os.environ.get("NEURODECODER_DATA_ROOT", "~/data/neurodecoder")).expanduser()
+DATA_ROOT = Path(env("DATA_ROOT", "~/data/neurodecoder")).expanduser()
 ONE_CACHE = DATA_ROOT / "one"
 NWB_PATH = (
     DATA_ROOT
@@ -191,14 +191,14 @@ needs_nwb = pytest.mark.skipif(not NWB_PATH.exists(), reason=f"NWB file not at {
 
 @pytest.fixture(scope="module")
 def real_one_session():
-    from neurodecoder.data.backends.one_backend import make_one
+    from unitwave.data.backends.one_backend import make_one
 
     return load_session_one(EID, make_one(ONE_CACHE))
 
 
 @pytest.fixture(scope="module")
 def nwb_session():
-    from neurodecoder.data.backends.dandi_nwb import load_session_nwb
+    from unitwave.data.backends.dandi_nwb import load_session_nwb
 
     return load_session_nwb(NWB_PATH)
 

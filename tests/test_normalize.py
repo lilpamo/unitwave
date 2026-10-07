@@ -1,17 +1,17 @@
 import dataclasses
 import math
-import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from neurodecoder.data.manifest import Manifest
-from neurodecoder.preprocess.binning import BinnedSpikes, PreprocConfig
-from neurodecoder.preprocess.normalize import Normalizer, fit_normalizer
-from neurodecoder.qc.units import UnitQC
-from neurodecoder.splits.registry import held_out_groups, within_session
+from unitwave.data.manifest import Manifest
+from unitwave.env import env
+from unitwave.preprocess.binning import BinnedSpikes, PreprocConfig
+from unitwave.preprocess.normalize import Normalizer, fit_normalizer
+from unitwave.qc.units import UnitQC
+from unitwave.splits.registry import held_out_groups, within_session
 
 PREPROC = PreprocConfig(bin_ms=20, qc=UnitQC(1.0, ("void", "root"), 0.1))
 FP = PREPROC.fingerprint()
@@ -166,7 +166,7 @@ def test_inverse_transform_recovers_counts():
     np.testing.assert_allclose(back, b.counts, atol=1e-4)
 
 
-DATA_ROOT = Path(os.environ.get("NEURODECODER_DATA_ROOT", "~/data/neurodecoder")).expanduser()
+DATA_ROOT = Path(env("DATA_ROOT", "~/data/neurodecoder")).expanduser()
 EPHYS = DATA_ROOT / "bwm_compressed/bwm_ephys/1.2.1"
 BEHAVIOUR = DATA_ROOT / "bwm_compressed/bwm_behavior/2.0.0"
 EID = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
@@ -176,10 +176,10 @@ EID = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
     not (EPHYS.exists() and BEHAVIOUR.exists()), reason="BWM releases not available"
 )
 def test_real_session_round_trips_through_normalisation():
-    from neurodecoder.data.backends.bwm_compressed import load_session_bwm
-    from neurodecoder.data.manifest import build_manifest
-    from neurodecoder.preprocess.binning import preprocess_session
-    from neurodecoder.splits.guards import assert_split_valid
+    from unitwave.data.backends.bwm_compressed import load_session_bwm
+    from unitwave.data.manifest import build_manifest
+    from unitwave.preprocess.binning import preprocess_session
+    from unitwave.splits.guards import assert_split_valid
 
     session = load_session_bwm(EID, EPHYS)
     split = within_session(
@@ -200,7 +200,7 @@ def test_real_session_round_trips_through_normalisation():
 
 
 def test_leave_one_block_out_fits_each_fold_on_its_training_intervals_only():
-    from neurodecoder.splits.registry import leave_one_block_out
+    from unitwave.splits.registry import leave_one_block_out
 
     prior = [0.5] * 5 + [p for b in range(5) for p in [[0.8, 0.2][b % 2]] * 4]
     starts = 1.0 + 3.5 * np.arange(len(prior))

@@ -78,7 +78,7 @@ the most serious error available to this project.
 Every training and evaluation entry point begins with:
 
 ```python
-from neurodecoder.splits.guards import assert_split_valid
+from unitwave.splits.guards import assert_split_valid
 
 split = load_split(cfg.split_path)
 assert_split_valid(split, context_bins=cfg.context_bins)

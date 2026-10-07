@@ -1,0 +1,114 @@
+# The visual discrimination task of Steinmetz et al. 2019, as its NWB files on DANDI
+# 000017 hold it (configs/nwb/steinmetz_2019.yaml). Conventions are the file's own
+# descriptions, checked on sub-Richards 2017-10-31 (docs/DECISIONS.md, "Step 5").
+# Schema: unitwave/analysis/tasks.py. Never change a value to improve a result (R6).
+name: steinmetz
+label: Steinmetz et al. 2019 visual discrimination
+required_columns: [intervals_0, intervals_1, visual_stimulus_time]
+
+events:
+  stim_on: {label: Stimulus onset, column: visual_stimulus_time}
+  go_cue: {label: Go cue, column: go_cue}
+  response: {label: Response, column: response_time}
+  feedback_reward: {label: "Feedback: reward", column: feedback_time, when: {column: feedback_type, equals: 1}}
+  feedback_error: {label: "Feedback: error", column: feedback_time, when: {column: feedback_type, equals: -1}}
+
+trial_view_events:
+  visual_stimulus_time: stimulus on
+  go_cue: go cue
+  response_time: response
+  feedback_time: feedback
+
+# Contrasts are proportions (0.5 is 50%); both sides can be shown at once, and 0 on
+# both sides makes no-go correct.
+conditions:
+  contrast_left:
+    label: Left contrast
+    type: ordinal
+    column: visual_stimulus_left_contrast
+    level_format: "{v:.0%}"
+    excluded: trials without a left contrast
+  contrast_right:
+    label: Right contrast
+    type: ordinal
+    column: visual_stimulus_right_contrast
+    level_format: "{v:.0%}"
+    excluded: trials without a right contrast
+  contrast_difference:
+    label: Contrast difference (right − left)
+    type: ordinal
+    derive: {name: difference, columns: [visual_stimulus_right_contrast, visual_stimulus_left_contrast]}
+    level_format: "{v:+.0%}"
+    excluded: trials without both contrasts
+  # The file: "-1 for Right choice (i.e. correct when stimuli are on the right); +1 for
+  # left choice; 0 for Nogo choice". On correct trials with unequal contrasts the choice
+  # is the side of the higher contrast (142 of 142 on Richards 2017-10-31).
+  choice:
+    label: Choice
+    type: categorical
+    column: response_choice
+    level_names: {-1: right (-1), 0: no-go (0), 1: left (+1)}
+    excluded: trials without a choice
+  outcome:
+    label: Outcome
+    type: categorical
+    column: feedback_type
+    level_names: {-1: error, 1: reward}
+    excluded: trials without feedback
+
+# Nulls permute within each pair of left and right contrasts, so a stimulus-driven
+# unit isn't called choice- or outcome-selective.
+strata:
+  contrasts: {derive: {name: combination, columns: [visual_stimulus_left_contrast, visual_stimulus_right_contrast]}}
+
+comparisons:
+  choice:
+    levels: [-1, 1]
+    null_model: {permute_within: contrasts}
+  outcome:
+    levels: [-1, 1]
+    null_model: {permute_within: contrasts}
+
+# No movement events: the trials hold the response time (when the wheel reached
+# threshold), not movement onset, so movement controls are unavailable rather than
+# mislabelled. The wheel series is refused by the layout (its rate is a period).
+behaviour:
+  traces: [pupil_area]
+
+trialstruct: [visual_stimulus_left_contrast, visual_stimulus_right_contrast, response_choice, feedback_type]
+
+trial_filters:
+  included:
+    label: Engaged trials only
+    kind: flag
+    column: included
+    reason: not included (disengaged)
+  exclude_nogo:
+    label: Exclude no-go
+    kind: exclude_values
+    column: response_choice
+    values: [0]
+    reason: no-go
+  outcomes:
+    label: Outcomes
+    kind: select
+    column: feedback_type
+    reason: outcome not selected
+    level_names: {-1: error, 1: reward}
+
+# Decoding (step 8a; docs/DECISIONS.md, "Step 8a"). The shuffle null rotates labels by at
+# least min_shift_trials: longer than this task's longest run of repeated trials (a
+# trial is repeated after an error; Richards 2017-10-31 shows one up to 9 times in a row).
+decoding:
+  min_shift_trials: 20
+  targets:
+    # Left vs right choice in the 100 ms before the response registers (the wheel
+    # reaching threshold), engaged trials only. Feedback follows the response, so the
+    # no-spikes baseline sees the current trial's contrasts but not its feedback.
+    choice:
+      label: Choice (right vs left)
+      condition: choice
+      levels: [-1, 1]
+      window: {event: response, start_s: -0.1, stop_s: 0.0}
+      trial_filters: [included]
+      after: [feedback_type]

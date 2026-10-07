@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="240" viewBox="0 0 1200 240">
+
+<defs>
+  <linearGradient id="r1" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#E13BFF"/><stop offset=".34" stop-color="#7B4DFF"/>
+    <stop offset=".68" stop-color="#336CFF"/><stop offset="1" stop-color="#36E7FF"/>
+  </linearGradient>
+  <linearGradient id="r2" x1="0" y1=".2" x2="1" y2=".8">
+    <stop offset="0" stop-color="#9B45FF"/><stop offset=".45" stop-color="#5A55FF"/>
+    <stop offset="1" stop-color="#20CFF4"/>
+  </linearGradient>
+  <linearGradient id="r3" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#6E43FF"/><stop offset=".5" stop-color="#4169FF"/>
+    <stop offset="1" stop-color="#17BDEB"/>
+  </linearGradient>
+  <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#FFFFFF" stop-opacity=".48"/>
+    <stop offset=".38" stop-color="#FFFFFF" stop-opacity=".08"/>
+    <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+  </linearGradient>
+  <linearGradient id="shade" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#080D2A" stop-opacity="0"/>
+    <stop offset="1" stop-color="#080D2A" stop-opacity=".52"/>
+  </linearGradient>
+  <filter id="glow" x="-35%" y="-55%" width="170%" height="210%">
+    <feGaussianBlur stdDeviation="10" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+</defs>
+
+<g transform="translate(12 -23) scale(.43)">
+<g>
+  <path d="M72 212
+           C122 155 161 154 211 217
+           C263 282 306 280 359 193
+           C417 98 465 89 520 178
+           C568 257 608 270 657 206
+           C700 150 742 149 787 204
+           C812 234 837 238 865 212
+           L865 249
+           C832 274 801 269 772 235
+           C734 190 707 192 675 234
+           C617 309 558 302 501 211
+           C460 145 431 148 389 217
+           C323 325 252 326 184 242
+           C145 194 121 194 87 233 Z" fill="url(#r1)"/>
+  <path d="M72 242
+           C121 188 161 190 211 250
+           C261 311 307 309 361 224
+           C417 136 465 126 520 211
+           C570 287 611 300 660 238
+           C700 188 742 181 787 236
+           C811 265 837 270 865 244
+           L865 279
+           C830 305 800 300 770 266
+           C734 224 707 222 676 262
+           C619 334 558 333 499 242
+           C460 181 431 180 391 246
+           C324 352 251 355 183 271
+           C146 226 121 225 88 263 Z" fill="url(#r2)" opacity=".97"/>
+  <path d="M72 273
+           C122 221 160 223 211 282
+           C260 339 308 340 362 255
+           C417 170 465 160 520 243
+           C571 319 611 330 661 270
+           C701 221 742 214 787 267
+           C812 296 837 301 865 275
+           L865 309
+           C831 337 800 330 770 297
+           C733 256 707 255 676 294
+           C618 365 558 365 499 274
+           C460 214 431 213 391 278
+           C323 383 250 386 182 302
+           C145 258 121 257 88 293 Z" fill="url(#r3)" opacity=".94"/>
+
+  <!-- dimensional highlights -->
+  <path d="M84 211 C128 168 162 171 205 224 C257 289 310 285 366 196
+           C418 113 461 105 510 181 C563 263 611 279 665 211"
+        fill="none" stroke="url(#shine)" stroke-width="8" stroke-linecap="round" opacity=".72"/>
+  <path d="M86 243 C128 204 163 204 205 255 C260 320 310 317 367 228
+           C419 147 461 142 510 215 C562 293 611 308 665 244"
+        fill="none" stroke="#FFFFFF" stroke-opacity=".16" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- localized underside shading -->
+  <path d="M333 291 C344 276 353 261 362 246 C392 197 414 174 437 168
+           C418 181 404 199 389 224 C368 260 352 284 333 291 Z"
+        fill="url(#shade)" opacity=".7"/>
+  <path d="M604 304 C624 296 642 282 660 260 C675 242 688 231 701 226
+           C686 242 677 255 666 271 C647 295 628 307 604 304 Z"
+        fill="#071329" opacity=".18"/>
+</g>
+</g>
+<text x="425" y="117" fill="#FFFFFF" font-family="Inter, Arial, sans-serif"
+      font-size="76" font-weight="650" letter-spacing="-3">UnitWave</text>
+<text x="430" y="164" fill="#AAB8CB" font-family="Inter, Arial, sans-serif"
+      font-size="24" font-weight="500" letter-spacing="13">STUDIO</text>
+</svg>

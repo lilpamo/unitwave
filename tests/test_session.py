@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from neurodecoder.data.session import (
+from unitwave.data.session import (
     BEHAVIOUR_FIELDS,
     TRIAL_FIELDS,
     UNIT_FIELDS,

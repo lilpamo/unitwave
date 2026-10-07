@@ -1,21 +1,21 @@
 import json
-import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from neurodecoder.data.session import (
+from unitwave.data.session import (
     BEHAVIOUR_FIELDS,
     TRIAL_FIELDS,
     UNIT_FIELDS,
     Capabilities,
     Session,
 )
-from neurodecoder.qc import task_rates
-from neurodecoder.qc.task_rates import load_task_rates, release_units, table_dir
-from neurodecoder.qc.units import in_task, task_firing_rates, task_period
+from unitwave.env import env
+from unitwave.qc import task_rates
+from unitwave.qc.task_rates import load_task_rates, release_units, table_dir
+from unitwave.qc.units import in_task, task_firing_rates, task_period
 
 
 def _trials(starts, stops) -> pd.DataFrame:
@@ -107,7 +107,7 @@ def test_release_units_refuses_a_table_missing_units(tmp_path):
         release_units(ephys, tmp_path / "derived")
 
 
-DATA_ROOT = Path(os.environ.get("NEURODECODER_DATA_ROOT", "~/data/neurodecoder")).expanduser()
+DATA_ROOT = Path(env("DATA_ROOT", "~/data/neurodecoder")).expanduser()
 EPHYS = DATA_ROOT / "bwm_compressed/bwm_ephys/1.2.1"
 DERIVED = DATA_ROOT / "derived"
 EID = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
@@ -115,7 +115,7 @@ EID = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
 
 @pytest.fixture(scope="module")
 def bwm_session():
-    from neurodecoder.data.backends.bwm_compressed import load_session_bwm
+    from unitwave.data.backends.bwm_compressed import load_session_bwm
 
     return load_session_bwm(EID, EPHYS)
 

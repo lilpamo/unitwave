@@ -5,10 +5,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from neurodecoder.data.manifest import Manifest, manifest_versions
-from neurodecoder.preprocess.binning import load_preproc_config
-from neurodecoder.splits.guards import assert_split_valid
-from neurodecoder.splits.registry import leave_one_block_out, load_split, save_split
+from unitwave.data.manifest import Manifest, manifest_versions
+from unitwave.preprocess.binning import load_preproc_config
+from unitwave.splits.guards import assert_split_valid
+from unitwave.splits.registry import leave_one_block_out, load_split, save_split
 
 PREPROC = load_preproc_config()
 N_UNBIASED, BLOCK, N_BLOCKS = 20, 10, 5

@@ -1,0 +1,61 @@
+# Allen Brain Observatory 1.1: drifting gratings, a passive task. Each presentation is
+# a trial (2 s of a full-field grating at one direction and temporal frequency);
+# presentations without a grating (blanks) are excluded and counted.
+# Read from DANDI 000021 with configs/nwb/allen_visual_coding.yaml.
+name: allen_drifting_gratings
+label: Allen drifting gratings (passive)
+required_columns: [intervals_0, intervals_1, orientation, temporal_frequency]
+
+events:
+  stim_on: {label: Grating onset, column: intervals_0}
+  stim_off: {label: Grating offset, column: intervals_1}
+
+conditions:
+  # Allen's "orientation" of a drifting grating is its direction of motion, 0-315.
+  direction:
+    label: Direction
+    type: ordinal
+    column: orientation
+    level_format: "{v:g}°"
+    excluded: blank presentations (no grating)
+  orientation:
+    label: Orientation
+    type: ordinal
+    derive: {name: orientation_of_direction, columns: [orientation]}
+    level_format: "{v:g}°"
+    excluded: blank presentations (no grating)
+  temporal_frequency:
+    label: Temporal frequency
+    type: ordinal
+    column: temporal_frequency
+    level_format: "{v:g} Hz"
+    excluded: blank presentations (no grating)
+
+strata:
+  temporal_frequency: {condition: temporal_frequency}
+
+# Vector-sum selectivity over the whole 2 s presentation; angles permuted within each
+# temporal frequency.
+comparisons:
+  direction:
+    circular: {period: 360}
+    null_model: {permute_within: temporal_frequency}
+    window: [0.0, 2.0]
+  orientation:
+    circular: {period: 180}
+    null_model: {permute_within: temporal_frequency}
+    window: [0.0, 2.0]
+
+behaviour:
+  traces: [running_speed]
+
+trialstruct: [orientation, temporal_frequency]
+
+trial_filters:
+  valid:
+    label: Exclude presentations during invalid data
+    kind: exclude_values
+    column: invalid_overlap
+    values: [1]
+    reason: during invalid data
+    default: true

@@ -1,0 +1,39 @@
+# Allen Brain Observatory 1.1: full-field flashes, a passive task. Each presentation is
+# a trial (0.25 s, dark or light). Read from DANDI 000021 with
+# configs/nwb/allen_visual_coding.yaml.
+name: allen_flashes
+label: Allen flashes (passive)
+required_columns: [intervals_0, intervals_1, color]
+
+events:
+  stim_on: {label: Flash onset, column: intervals_0}
+  stim_off: {label: Flash offset, column: intervals_1}
+
+conditions:
+  color:
+    label: Flash
+    type: categorical
+    column: color
+    level_names: {-1: dark, 1: light}
+    excluded: presentations without a colour
+
+# Nothing confounds dark against light here, so a plain permutation.
+comparisons:
+  color:
+    levels: [-1, 1]
+    null_model: {permute: all}
+    window: [0.0, 0.25]
+
+behaviour:
+  traces: [running_speed]
+
+trialstruct: [color]
+
+trial_filters:
+  valid:
+    label: Exclude presentations during invalid data
+    kind: exclude_values
+    column: invalid_overlap
+    values: [1]
+    reason: during invalid data
+    default: true

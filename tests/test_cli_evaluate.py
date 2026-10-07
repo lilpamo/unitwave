@@ -5,9 +5,9 @@ import pandas as pd
 import pytest
 from test_eval_data import EIDS, SESSIONS, _manifest
 
-from neurodecoder.cli.evaluate import REPO, load_run_config, run, select_sessions
-from neurodecoder.preprocess.normalize import Normalizer
-from neurodecoder.splits.registry import load_split
+from unitwave.cli.evaluate import REPO, load_run_config, run, select_sessions
+from unitwave.preprocess.normalize import Normalizer
+from unitwave.splits.registry import load_split
 
 FIRST_TABLE = REPO / "configs/runs/phase3_first_table.yaml"
 CONFIRMATION = REPO / "configs/runs/phase3_confirmation.yaml"

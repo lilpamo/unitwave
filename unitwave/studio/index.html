@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UnitWave Studio</title>
+<link rel="icon" type="image/svg+xml" href="/static/brand/unitwave-app-icon-flat.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/brand/icon-32.png">
+<link rel="apple-touch-icon" href="/static/brand/icon-180.png">
+<link rel="stylesheet" href="/static/app.css">
+<script type="importmap">
+  { "imports": { "three": "/static/vendor/three/three.module.min.js" } }
+</script>
+</head>
+<body>
+<!-- Session page (redesign, 2026-10-05): a top bar with the workspaces, a context bar that
+     says what every view uses (alignment, window, split, trials, units), and three
+     workspaces. Every number still comes from the server; ids are unchanged. -->
+<header class="topbar">
+  <a class="btn" href="/" title="Back to choosing data">← Home</a>
+  <div class="brand"><img src="/static/brand/unitwave-app-icon-flat.svg" alt="">UnitWave <span>Studio</span></div>
+  <details class="pick session">
+    <summary class="source" id="source" title="What this session is, and what its files support">loading…</summary>
+    <div class="pop">
+      <p class="note" id="projectFile"></p>
+      <details class="report" id="sourceReport" hidden open><summary>What this file supports</summary><div id="sourceReportBody"></div></details>
+    </div>
+  </details>
+  <div class="seg workspaces" id="workspaces" role="tablist" aria-label="Workspace">
+    <button data-ws="explore" role="tab" aria-pressed="true">Explore</button><button data-ws="population" role="tab" aria-pressed="false">Population</button><button data-ws="trials" role="tab" aria-pressed="false">Trials</button><button data-ws="statistics" role="tab" aria-pressed="false">Statistics</button>
+  </div>
+  <button class="btn" id="recipesOpen" aria-expanded="false" aria-controls="recipes" title="Guided analyses: one question, step by step">Recipes</button>
+  <div class="spacer"></div>
+  <div class="project">
+    <button class="linkish note" id="logTotal" title="The analysis log: every test computed in this project is written to the project file at once, with how many hypotheses it tested. Identical re-runs are counted once. A result is confirmatory only as the first run of a planned recipe step on a held-out session (python -m unitwave.cli.plan); everything else is exploratory. Click to see it."></button>
+    <span class="note" id="projectStatus"></span>
+    <button class="btn" id="save" title="Save the project: the data source, file hashes and these settings (no results)">Save</button>
+    <button class="btn" id="export" title="Export figures: SVG and PDF with their numbers, to runs/">Export</button>
+  </div>
+  <div class="seg" id="theme" role="group" aria-label="Theme">
+    <button data-v="auto" aria-pressed="true">Auto</button><button data-v="light">Light</button><button data-v="dark">Dark</button>
+  </div>
+</header>
+
+<!-- What every view and test on this page uses. Each chip opens its controls. -->
+<div class="context" id="context">
+  <label class="ctl">Aligned to <select id="event"></select></label>
+  <details class="pick">
+    <summary class="chip"><span id="windowText">−0.5 to 1 s</span></summary>
+    <div class="pop">
+      <label>Window <input type="number" id="t0" value="-0.5" step="0.1"> to <input type="number" id="t1" value="1.0" step="0.1"> s</label>
+      <label>Bin <input type="number" id="bin" value="0.02" step="0.005" min="0.001"> s</label>
+      <label class="check"><input type="checkbox" id="baseline"> Subtract baseline</label>
+      <label>from <input type="number" id="b0" value="-0.5" step="0.1"> to <input type="number" id="b1" value="0" step="0.1"> s</label>
+    </div>
+  </details>
+  <label class="ctl">Split by <select id="split"><option value="">None</option></select></label>
+  <details class="pick">
+    <summary class="chip"><span class="k">Trials</span> <span id="trialsText">…</span></summary>
+    <div class="pop wide">
+      <p class="note" id="trialCounts"></p>
+      <div class="trialbox" id="trialFilters"></div>
+    </div>
+  </details>
+  <details class="pick">
+    <summary class="chip"><span class="k">Units</span> <span id="unitsText">…</span></summary>
+    <div class="pop">
+      <p class="note" id="counts"></p>
+      <label class="check"><input type="checkbox" id="all"> Include units failing QC</label>
+      <div class="seg probes" id="probeFilter" role="group" aria-label="Probe filter"></div>
+      <label class="check"><input type="checkbox" id="responsive" disabled> Responsive only (run responsiveness first)</label>
+      <div class="row"><span class="lbl">Region level</span><div class="seg" id="level" role="group" aria-label="Region level"></div></div>
+      <p class="note" id="levelNote"></p>
+    </div>
+  </details>
+</div>
+<div class="banner" id="warnings" role="alert" hidden></div>
+
+<!-- Recipes (step 9): wording and steps come from configs/recipes/ through the server;
+     each step runs the manual view's own analysis. -->
+<aside class="drawer" id="recipes" hidden aria-label="Recipes">
+  <header><h3>Recipes</h3><button class="btn" id="recipesClose" aria-label="Close recipes">Close</button></header>
+  <p class="note">Each step runs the same analysis as Explore and Statistics, on the units and trials shown, and shows you where its result is. A result is exploratory unless it is the first run of a step that a held-out plan named in advance (python -m unitwave.cli.plan).</p>
+  <div id="recipeList"></div>
+</aside>
+
+<main>
+  <!-- Explore: where the units are, which units, and the selected unit. -->
+  <div class="ws ws-explore" id="ws-explore">
+    <section class="card area-where">
+      <header><h3>Where</h3></header>
+      <div class="brain" id="brain"><p class="note" id="brainNote"></p></div>
+      <h4>Regions</h4>
+      <div class="tree" id="tree"></div>
+    </section>
+      <section class="card area-table">
+        <header><h3>Units</h3><span class="meta" id="tableMeta"></span></header>
+        <div class="table"><table>
+          <thead><tr><th>Unit</th><th>Region</th><th class="num">Depth µm</th><th class="num">Rate Hz</th><th>Label</th><th id="qcHead">QC</th><th id="spikeQcHead" title="Unit QC from spike times only (configs/qc_spikes.yaml), shown beside this source's own rule">Spike QC</th><th title="Responsive to this event (q &lt; alpha)">Resp.</th><th class="num" title="Selectivity: AUROC between the split's two conditions; * when q &lt; alpha">Sel.</th><th title="Locked to the trial's first movement (q &lt; alpha): rate up or down after it">Mov.</th><th title="Putative excitatory connections among the units tested: outgoing → and incoming ←">Conn.</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table></div>
+      </section>
+      <section class="card area-unit">
+        <header><h3>Selected unit</h3>
+          <div class="seg tabs" id="unitTabs" role="group" aria-label="Unit view">
+            <button data-tab="activity" aria-pressed="true">Activity</button>
+            <button data-tab="quality" aria-pressed="false">Quality</button>
+            <button data-tab="pairs" aria-pressed="false">Pairs</button>
+          </div>
+        </header>
+        <div class="unitbody">
+        <div class="unitmain">
+        <div id="qualityPane" hidden>
+          <p class="caption" id="qualityCaption"></p>
+          <div class="qualityfacts" id="qualityFacts"></div>
+          <img id="qualityImg" alt="ISI histogram, autocorrelogram, refractory test, rate across the session and mean waveform">
+          <p class="err" id="qualityErr"></p>
+        </div>
+        <div id="pairsPane" hidden>
+          <label class="partner">Partner <select id="partner"></select></label>
+          <div class="qualityfacts" id="pairFacts"></div>
+          <p class="caption" id="pairCaption"></p>
+          <img id="pairImg" alt="Cross-correlogram of the selected unit and its partner, with its expectation under jitter">
+          <p class="err" id="pairErr"></p>
+        </div>
+        <div id="activityPane">
+        <p class="caption" id="unitCaption"></p>
+        <img id="unitImg" alt="Raster and PSTH of the selected unit">
+        <p class="err" id="unitErr"></p>
+        <div id="wheelBox">
+          <p class="caption" id="wheelCaption"></p>
+          <img id="wheelImg" alt="Wheel speed around the event, on the same trials">
+          <p class="err" id="wheelErr"></p>
+        </div>
+        <div id="tuningBox" hidden>
+          <p class="caption" id="tuningCaption"></p>
+          <img id="tuningImg" alt="Tuning curve of the selected unit">
+          <p class="err" id="tuningErr"></p>
+        </div>
+        </div>
+        </div>
+        <aside class="probe" aria-label="Probe strip">
+          <p class="meta" id="brainMeta"></p>
+          <svg id="probe" role="img" aria-label="Probe strip"></svg>
+        </aside>
+        </div>
+      </section>
+  </div>
+
+  <!-- Population: every shown unit together. -->
+  <div class="ws ws-population" id="ws-population" hidden>
+      <section class="card area-pop">
+        <header><h3>Population</h3>
+          <div class="seg tabs" id="popTabs" role="group" aria-label="Population view">
+            <button data-tab="heatmap" aria-pressed="true">Heatmap</button>
+            <button data-tab="trajectories" aria-pressed="false">Trajectories</button>
+            <button data-tab="decoding" aria-pressed="false">Decoding</button>
+          </div>
+        </header>
+        <div id="heatmapPane">
+          <p class="caption" id="popCaption"></p>
+          <div class="popwrap"><img id="popImg" alt="Population heatmap"><div class="tip" id="popTip" hidden></div></div>
+          <p class="err" id="popErr"></p>
+        </div>
+        <div id="trajPane" hidden>
+          <div class="seg" id="trajDims" role="group" aria-label="Trajectory dimensions">
+            <button data-dims="2" aria-pressed="true">2-D</button>
+            <button data-dims="3" aria-pressed="false">3-D</button>
+          </div>
+          <p class="caption" id="trajCaption"></p>
+          <img id="trajImg" alt="Population trajectories on principal components, shown on held-out trials">
+          <p class="err" id="trajErr"></p>
+        </div>
+        <div id="decPane" hidden>
+          <p class="caption" id="decCaption">Not run yet: choose a variable under Decoding and run it.</p>
+          <p class="decgate" id="decGate"></p>
+          <div class="dectable">
+            <table>
+              <thead><tr><th>Row</th><th class="num">AUROC</th><th class="num">Bal. acc.</th><th class="num">Log loss</th><th class="num">ECE</th><th class="num" title="Test samples">n</th></tr></thead>
+              <tbody id="decRows"></tbody>
+            </table>
+          </div>
+          <p class="note" id="decRowNotes"></p>
+          <ul class="declines" id="decLines"></ul>
+          <p class="note" id="decNull"></p>
+        </div>
+      </section>
+
+  </div>
+
+  <!-- Trials: every trial at a glance, and one trial at a time, full width. -->
+  <div class="ws ws-trials" id="ws-trials" hidden>
+    <section class="card area-strip">
+      <header><h3>All trials</h3><span class="meta" id="stripMeta"></span>
+        <label class="ctl">Colour by <select id="stripColour" aria-label="Colour the trials by"></select></label></header>
+      <div class="stripwrap"><svg id="strip" role="img" aria-label="Every trial: kept or filtered out, reaction time and condition; click one to open it"></svg><div class="tip" id="stripTip" hidden></div></div>
+      <div class="legend" id="stripLegend"></div>
+    </section>
+      <section class="card area-trial">
+        <header><h3>Trial</h3><span class="meta" id="trialPlace"></span></header>
+        <div class="trialbar">
+          <button class="btn sm" id="trialPrev" title="Previous trial (←)" disabled>‹ Previous</button>
+          <label>Trial <input type="number" id="trialNo" min="0" step="1" title="0-based row of the trials table"></label>
+          <button class="btn sm" id="trialNext" title="Next trial (→)" disabled>Next ›</button>
+          <label class="check" title="Otherwise previous/next skip trials the trial filters exclude"><input type="checkbox" id="trialAll"> All trials</label>
+          <label>Zero at <select id="trialAlign"></select></label>
+          <label>Pads <input type="number" id="trialPre" step="0.1" min="0"> s before, <input type="number" id="trialPost" step="0.1" min="0"> s after</label>
+          <label class="check"><input type="checkbox" id="trialNeighbours"> Neighbouring trials:</label>
+          <label><input type="number" id="trialN" min="1" step="1"> shown</label>
+          <span class="traces" id="trialTraces"></span>
+        </div>
+        <div class="trialhead" id="trialHead"></div>
+        <p class="caption" id="trialCaption"></p>
+        <p class="note" id="trialEmpty">Choose a trial: click a row of the selected unit's raster in Explore, or type a trial number.</p>
+        <div class="popwrap"><img id="trialImg" alt="Every shown unit's spikes in this trial, with task events and behaviour" hidden><div class="tip" id="trialTip" hidden></div></div>
+        <p class="err" id="trialErr"></p>
+      </section>
+  </div>
+
+  <!-- Statistics: each test with what it tests, its null and correction, and its result. -->
+  <div class="ws ws-statistics" id="ws-statistics" hidden>
+    <section class="card test">
+      <header><h3>Responsiveness</h3></header>
+      <p class="note" id="testWindows"></p>
+      <label class="check" id="freeBox"><input type="checkbox" id="movementFree"> Movement-free trials only</label>
+      <p class="note" id="freeNote"></p>
+      <div><button class="btn" id="runTest">Test shown units</button></div>
+      <p class="result" id="testSummary"></p>
+    </section>
+    <section class="card test">
+      <header><h3>Selectivity</h3></header>
+      <p class="note" id="selWhat">Choose a condition to split by.</p>
+      <div><button class="btn" id="runSel" disabled>Test selectivity</button></div>
+      <p class="result" id="selSummary"></p>
+    </section>
+    <section class="card test">
+      <header><h3>Movement locking</h3></header>
+      <p class="note" id="lockWhat"></p>
+      <div><button class="btn" id="runLock">Test movement locking</button></div>
+      <p class="result" id="lockSummary"></p>
+    </section>
+    <section class="card test">
+      <header><h3>Connections</h3></header>
+      <p class="note" id="connWhat"></p>
+      <div><button class="btn" id="runConn">Test pairs among shown units</button></div>
+      <p class="result" id="connSummary"></p>
+    </section>
+    <section class="card test">
+      <header><h3>Decoding</h3></header>
+      <p class="note" id="decWhat"></p>
+      <select id="decTarget" aria-label="Variable to decode"></select>
+      <div><button class="btn" id="runDec">Decode from shown units</button></div>
+      <p class="result" id="decSummary" aria-live="polite"></p>
+    </section>
+    <section class="card test log">
+      <header><h3>Analysis log</h3><span class="meta" id="logMeta"></span></header>
+      <ol class="loglist" id="logList"></ol>
+    </section>
+  </div>
+</main>
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>

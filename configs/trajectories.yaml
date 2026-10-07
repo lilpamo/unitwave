@@ -1,0 +1,13 @@
+# Population trajectories (unitwave/analysis/trajectories.py; docs/DECISIONS.md, 2026-10-01).
+# Descriptive: principal components of condition-averaged activity, fit on alternate
+# trials (1st, 3rd, ...) and shown on the others (2nd, 4th, ...). No labels, no null.
+
+# Components fit and shown (a 2-D view uses the first two).
+n_components: 3
+# Soft normalisation (Churchland et al. 2012): each unit's rates are divided by its
+# range on the fit half plus this many Hz, so quiet units are not inflated.
+soft_norm_hz: 5.0
+# Gaussian smoothing (sigma, seconds) of each condition-averaged rate before the fit.
+smooth_s: 0.03
+# A condition needs at least this many trials in each half to be fit and shown.
+min_trials: 5

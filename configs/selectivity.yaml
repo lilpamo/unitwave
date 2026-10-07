@@ -1,0 +1,12 @@
+# Selectivity: AUROC between two conditions per unit (unitwave/analysis/tuning.py;
+# docs/DECISIONS.md, 2026-09-30). Windows and alpha come from configs/analysis.yaml.
+
+# Label permutations for side, choice and outcome (stratified; see tuning.py).
+# 10000 keeps the smallest p (1/10001) below alpha / n_units for ~400 units under BH.
+n_permutations: 10000
+# Pseudo-sessions from IBL's block generator, for block (evaluation/nulls.py).
+n_pseudo_sessions: 10000
+# Seeds every permutation and pseudo-session (R7): pseudo-session i uses seed + 1 + i.
+seed: 0
+# Each of the two conditions needs at least this many trials, or the test is refused.
+min_trials: 10

@@ -1,0 +1,14 @@
+# Unit quality panel (unitwave/analysis/unit_quality.py; docs/DECISIONS.md, 2026-10-01).
+# Display settings only: the panel shows QC already computed and labels nothing new.
+
+# ISI histogram: 0 to isi_max_s in bins of isi_bin_s; longer intervals are counted.
+isi_max_s: 0.05
+isi_bin_s: 0.0005
+# Autocorrelogram: lags -acg_window_s to +acg_window_s, bins of acg_bin_s centred on 0.
+acg_window_s: 0.05
+acg_bin_s: 0.001
+# Firing rate across the session, in bins of rate_bin_s.
+rate_bin_s: 60.0
+# Presence ratio: IBL's definition and window (brainbox quick_unit_metrics,
+# METRICS_PARAMS['presence_window'] = 10 s).
+presence_window_s: 10.0

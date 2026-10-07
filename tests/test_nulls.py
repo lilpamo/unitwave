@@ -1,18 +1,18 @@
-import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from neurodecoder.data.session import (
+from unitwave.data.session import (
     BEHAVIOUR_FIELDS,
     TRIAL_FIELDS,
     UNIT_FIELDS,
     Capabilities,
     Session,
 )
-from neurodecoder.evaluation.nulls import (
+from unitwave.env import env
+from unitwave.evaluation.nulls import (
     NullConfig,
     bin_trialstruct_features,
     draw_shifts,
@@ -21,10 +21,10 @@ from neurodecoder.evaluation.nulls import (
     shift_trial_target,
     trial_trialstruct_features,
 )
-from neurodecoder.preprocess.binning import BinnedSpikes, PreprocConfig
-from neurodecoder.qc.units import UnitQC
-from neurodecoder.targets.bins import BinTarget
-from neurodecoder.targets.trials import TrialTarget
+from unitwave.preprocess.binning import BinnedSpikes, PreprocConfig
+from unitwave.qc.units import UnitQC
+from unitwave.targets.bins import BinTarget
+from unitwave.targets.trials import TrialTarget
 
 FP = PreprocConfig(bin_ms=20, qc=UnitQC(1.0, ("void", "root"), 0.1)).fingerprint()
 CFG = NullConfig(
@@ -215,6 +215,24 @@ def test_block_null_never_sees_the_current_trial_or_its_label():
     np.testing.assert_array_equal(changed[0], features[5])
 
 
+def test_stimulus_side_null_sees_the_block_prior_but_never_the_current_stimulus():
+    # S3: within a biased block the stimulus is on the prior's side 80% of the time, so
+    # the prior is the task's own prediction of the side; spikes must beat it.
+    features, names = trial_trialstruct_features(_session(), _trial_target("stimulus_side"), CFG)
+    assert names[-1] == "block_prior" and "signed_contrast" not in names
+    assert features.shape == (N_TRIALS, 3 * 10 + 1)
+    col = {n: i for i, n in enumerate(names)}
+    assert features[5, col["block_prior"]] == pytest.approx(0.8)
+    # Trial 5's own stimulus, choice and reward don't reach its row.
+    current = _trials()
+    current.loc[5, ["contrastLeft", "contrastRight"]] = [np.nan, 1.0]
+    current.loc[5, ["choice", "feedbackType"]] = [1.0, -1.0]
+    changed = trial_trialstruct_features(
+        _session(current), _trial_target("stimulus_side", [5]), CFG
+    )[0]
+    np.testing.assert_array_equal(changed[0], features[5])
+
+
 def test_rows_follow_the_targets_trials():
     features, _ = trial_trialstruct_features(_session(), _trial_target("choice", [3, 7]), CFG)
     full, _ = trial_trialstruct_features(_session(), _trial_target("choice"), CFG)
@@ -231,7 +249,7 @@ def test_default_config():
 
 
 def test_pseudo_blocks_follow_the_ibl_protocol():
-    from neurodecoder.evaluation.nulls import generate_pseudo_blocks
+    from unitwave.evaluation.nulls import generate_pseudo_blocks
 
     p = generate_pseudo_blocks(600, seed=3)
     assert p.shape == (600,) and (p[:90] == 0.5).all()
@@ -244,7 +262,7 @@ def test_pseudo_blocks_follow_the_ibl_protocol():
     assert (generate_pseudo_blocks(50, seed=0) == 0.5).all()
 
 
-_TRIALS = Path(os.environ.get("NEURODECODER_DATA_ROOT", "~/data/neurodecoder")).expanduser() / (
+_TRIALS = Path(env("DATA_ROOT", "~/data/neurodecoder")).expanduser() / (
     "bwm_compressed/bwm_ephys/1.2.1/metadata/trials.parquet"
 )
 
@@ -253,7 +271,7 @@ _TRIALS = Path(os.environ.get("NEURODECODER_DATA_ROOT", "~/data/neurodecoder")).
 def test_pseudo_block_lengths_match_the_release():
     from scipy.stats import ks_2samp
 
-    from neurodecoder.evaluation.nulls import generate_pseudo_blocks
+    from unitwave.evaluation.nulls import generate_pseudo_blocks
 
     def complete_block_lengths(prior):
         prior = prior[prior != 0.5]

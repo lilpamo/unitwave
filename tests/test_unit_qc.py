@@ -1,18 +1,18 @@
-import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from neurodecoder.data.session import (
+from unitwave.data.session import (
     BEHAVIOUR_FIELDS,
     TRIAL_FIELDS,
     UNIT_FIELDS,
     Capabilities,
     Session,
 )
-from neurodecoder.qc.units import UnitQC, apply_unit_qc, load_qc_config, unit_qc
+from unitwave.env import env
+from unitwave.qc.units import UnitQC, apply_unit_qc, load_qc_config, unit_qc
 
 QC = UnitQC(min_label=1.0, exclude_regions=("void", "root"), min_firing_rate_hz=0.1)
 
@@ -142,7 +142,7 @@ def test_apply_refuses_to_return_a_session_with_no_units():
         apply_unit_qc(_session(_units(label=[0.0] * 4)), QC)
 
 
-DATA_ROOT = Path(os.environ.get("NEURODECODER_DATA_ROOT", "~/data/neurodecoder")).expanduser()
+DATA_ROOT = Path(env("DATA_ROOT", "~/data/neurodecoder")).expanduser()
 EID = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
 BWM = DATA_ROOT / "bwm_compressed/bwm_ephys/1.2.1"
 NWB = (
@@ -159,7 +159,7 @@ DERIVED = DATA_ROOT / "derived"
     reason="BWM release and task-rate table needed",
 )
 def test_real_bwm_floor_removes_exactly_the_sub_0_1_hz_task_rate_units():
-    from neurodecoder.qc.task_rates import release_units
+    from unitwave.qc.task_rates import release_units
 
     units = release_units(BWM, DERIVED)
     result = unit_qc(units, QC)
@@ -173,9 +173,9 @@ def test_real_bwm_floor_removes_exactly_the_sub_0_1_hz_task_rate_units():
     reason="all three backends' data are needed",
 )
 def test_real_three_backends_keep_the_same_units():
-    from neurodecoder.data.backends.bwm_compressed import load_session_bwm
-    from neurodecoder.data.backends.dandi_nwb import load_session_nwb
-    from neurodecoder.data.backends.one_backend import load_session_one, make_one
+    from unitwave.data.backends.bwm_compressed import load_session_bwm
+    from unitwave.data.backends.dandi_nwb import load_session_nwb
+    from unitwave.data.backends.one_backend import load_session_one, make_one
 
     kept = [
         set(apply_unit_qc(s, QC).units.index)

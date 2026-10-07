@@ -1,0 +1,21 @@
+# Single-session decoding in Studio (S3, signed off by the user 2026-10-01). Never
+# change a value to make a result beat its null (R6). See docs/DECISIONS.md.
+
+seed: 0
+# The split, as in configs/runs/phase3_confirmation.yaml: early trials train, late
+# trials test, with a gap; block uses leave-one-block-out (pairs of biased blocks).
+split:
+  train_fraction: 0.8
+  gap_s: 2.0
+  leave_one_block_out: [block]
+# Per-bin targets train on every k-th bin (as in the confirmation run).
+train_stride: {movement_state: 5}
+targets: [choice, stimulus_side, block, movement_state]
+model: ridge
+# null_shuffle draws for one session: the verdict ranks the model among them, and
+# with 20 (the cross-session runs' number) the smallest possible p is 1/21 = 0.048.
+n_shifts: 100
+# Paired bootstrap over whole test trials (vs null_trialstruct and baseline_ridge).
+n_bootstrap: 2000
+# Benjamini-Hochberg level across the session's comparisons.
+alpha: 0.05

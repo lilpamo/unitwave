@@ -1,0 +1,7 @@
+# Unit QC for NWB files whose layout declares a quality column (configs/nwb/*.yaml),
+# e.g. Steinmetz 2019's phy_annotations (unitwave/qc/nwb.py; docs/DECISIONS.md, step 5).
+# The column and its passing rule come from the layout; files without one are judged
+# on spike times (configs/qc_spikes.yaml). Never change a value to improve a result (R6).
+
+# Same threshold and task-period definition as configs/qc.yaml.
+min_firing_rate_hz: 0.1

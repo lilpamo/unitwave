@@ -1,0 +1,18 @@
+# Cross-correlograms and putative connections (unitwave/analysis/correlograms.py;
+# docs/DECISIONS.md, 2026-10-01).
+
+# Correlogram display: lags -window_s to +window_s, bins of bin_s centred on 0.
+window_s: 0.025
+bin_s: 0.0005
+# Interval jitter (Amarasingham et al. 2012): the second unit's spikes are resampled
+# uniformly within fixed windows of jitter_s, keeping slower co-modulation and
+# breaking millisecond timing. The test is exact over that null, so there is no seed.
+jitter_s: 0.005
+# A putative monosynaptic connection: spike count at lags in [start, stop) seconds
+# (the first unit leading for "A -> B"), against its exact interval-jitter null.
+synaptic_window_s: [0.001, 0.004]
+# Pairs grow as n^2: the test runs on at most this many shown units at once.
+max_units: 30
+# Units on one probe whose sites are within this distance are flagged: sorting
+# hides their near-simultaneous spikes, which makes a false dip at zero lag.
+close_um: 50.0

@@ -1,4 +1,4 @@
-# CLAUDE.md — neurodecoder
+# CLAUDE.md — UnitWave Studio
 
 Project constitution. Read this file in full at the start of every session.
 If anything below conflicts with a request in chat, say so before acting.
@@ -7,17 +7,21 @@ If anything below conflicts with a request in chat, say so before acting.
 
 ## 1. What this project is
 
-A **reliability layer for cross-animal neural population decoding**, built on IBL
-Neuropixels data, with an NWB intake path for arbitrary files.
+**UnitWave Studio**: a local app for analysis after spike sorting. You load
+sorted Neuropixels units plus task events, browse units, and run event-aligned and
+tuning analyses in a GUI, with strict statistics. Data comes from IBL (BWM, ONE),
+NWB, and Kilosort/Phy folders. (Renamed from Neurodecoder Studio on 2026-10-01; see
+"Rename: UnitWave Studio" in `docs/DECISIONS.md`.)
 
-The scientific question is *not* "can we decode behaviour from spikes" — that is
-settled. The question is:
+Every plot and label the app shows must be something a careful reviewer would
+accept: trial counts visible, missing data excluded and counted, and every claim
+of responsiveness or tuning tested against a null.
 
-> When a decoder trained on many animals is applied to a new animal or a new
-> recording configuration, can we tell in advance whether its prediction should
-> be trusted — and does acting on that signal measurably reduce error?
-
-Everything else in the repo exists to make that question answerable.
+**Parked:** the original question, a reliability layer for cross-animal decoding
+("can we tell in advance whether a decoder's prediction on a new animal should be
+trusted?"). Its Phase 3 gate did not pass on the confirmation set; see
+`docs/NEGATIVE_RESULTS.md` and "Direction change: Neurodecoder Studio" in
+`docs/DECISIONS.md` (both 2026-09-30).
 
 ## 2. What this project is NOT
 
@@ -26,13 +30,11 @@ recorded in `docs/DECISIONS.md`:
 
 - A foundation model for neural data. NEDS, POYO+ and NDT2 exist. We are not
   competing on decoding accuracy at scale.
-- A spike-sorting pipeline. We consume sorted units only.
+- A spike sorter or curation tool. Kilosort and Phy stay upstream; we consume
+  sorted units only.
 - An LLM that predicts behaviour. See §6.
-- A hosted web app. Analysis is CLI first. The one exception is the Phase 8b
-  local app, a browser UI on the user's own machine that only calls CLI entry
-  points; see "Local app for non-programmers (Phase 8b)" in `docs/DECISIONS.md`.
-- A general neuroscience analysis library. SpikeLab exists; prefer wrapping it
-  over reimplementing it.
+- A hosted web app. Studio is a local app only: a browser UI on the user's own
+  machine, served by a local process, with data that never leaves the lab.
 
 ## 3. Non-negotiable scientific rules
 
@@ -40,7 +42,7 @@ These are enforced by tests. Do not weaken a test to make code pass; fix the cod
 or escalate in chat.
 
 **R1 — No split without a registry.** Every train/val/test partition is produced
-by `neurodecoder.splits` and serialized to a split file with a hash. Models never
+by `unitwave.splits` and serialized to a split file with a hash. Models never
 receive raw session lists. See `docs/SPLITS_AND_LEAKAGE.md`.
 
 **R2 — No random time-point splits.** Ever. Not for a quick check, not for a
@@ -53,7 +55,9 @@ z-score over a whole session before splitting, stop.
 
 **R4 — Every reported number ships with its baseline and its null.** A decoding
 accuracy with no shuffle control and no trial-structure-only baseline is not a
-result. See §5.
+result. For analyses, every "responsive" or "tuned" label needs a shuffle null
+and a correction for the number of units tested. A plot on its own makes no
+claim; a label does. See §5.
 
 **R5 — Latent states are model outputs, not biological claims.** Name them
 `latent_state_k`, never `engagement` or `preparation`, anywhere in code, plots,
@@ -67,7 +71,8 @@ invalidates caches. Never change these silently to improve a metric.
 
 ## 4. Before writing code in any session
 
-1. Read `docs/ROADMAP.md` and identify which phase we are in.
+1. Read `docs/proposals/studio_next_steps.md` and identify which step we are on.
+   (`docs/ROADMAP.md` is the parked decoding roadmap.)
 2. Read `docs/DECISIONS.md` for decisions already made and
    `docs/NEGATIVE_RESULTS.md` for what has already been tried and failed.
 3. State, in chat, the one module you are about to touch and what test will prove
@@ -75,9 +80,25 @@ invalidates caches. Never change these silently to improve a metric.
 4. Do not touch modules outside that scope. If a change requires it, stop and say
    so.
 
-## 5. The evaluation contract
+## 5. The evaluation contracts
 
-Any model evaluation must report, in this order:
+### Analyses (Studio)
+
+Any statistical claim about a unit or a population must report:
+
+- **the statistic**, and the windows it was computed over;
+- **the null** it was tested against, with the number of shuffles and the seed;
+- **the number of tests**, and the correction applied across them;
+- **trial counts**: trials used and trials excluded for missing events.
+
+Descriptive plots (rasters, PSTHs, heatmaps) show trial counts and make no claim.
+Anything that selects or sorts units from the data it then displays must say so,
+or be cross-validated.
+
+### Decoding (parked with Phase 3)
+
+These six rows apply to decoding only. Any model evaluation must report, in this
+order:
 
 | Row | What |
 |---|---|
@@ -99,6 +120,9 @@ different variance is misleading; the test suite checks for it.
 
 ## 6. The LLM boundary
 
+**Dormant:** Studio has no agent layer. The rule below still holds if one is
+added.
+
 Hard architectural rule.
 
 ```
@@ -109,8 +133,8 @@ NWB / ONE  →  deterministic preprocessing  →  trained model  →  numbers on
                                                         prose, plots, report
 ```
 
-The agent layer (`neurodecoder/agent/`) may only read artifacts produced by
-`neurodecoder/models/` and `neurodecoder/evaluation/`. It has no access to raw
+The agent layer (`unitwave/agent/`) may only read artifacts produced by
+`unitwave/models/` and `unitwave/evaluation/`. It has no access to raw
 data and no numerical tools that could produce a prediction.
 
 Every number appearing in a generated report must be traceable to a field in
@@ -133,8 +157,10 @@ every numeral appears in the source artifacts. Do not disable it.
   decoding is almost always leakage.
 - Write down failed experiments in `docs/NEGATIVE_RESULTS.md`. They are the most
   valuable thing in this repo and the easiest to lose.
-- Every capability is a CLI entry point with structured JSON output; errors and
-  refusals are written for non-programmers.
+- The UI computes nothing itself. It loads through `data/` and `qc/`, gets every
+  number from `unitwave/analysis/` and draws through `viz/`. Every analysis is
+  also callable without the UI. Errors and refusals are written for
+  non-programmers.
 
 **Do not:**
 - Refactor validated preprocessing code while implementing something else.
@@ -155,6 +181,12 @@ Added only when the phase needs it: `dandi` + `remfile` (Phase 1 streaming),
 bottleneck), `netcal` or equivalent (Phase 6 calibration), `hydra` (only if
 config composition becomes painful).
 
+Studio UI: Python's standard-library `http.server`, plus one plain HTML and
+JavaScript page, with no build step. Plots are matplotlib PNGs rendered
+server-side. The 3D brain uses three.js, kept in the repo under
+`studio/static/vendor/`. No web framework or chart library until a need is
+recorded in `docs/DECISIONS.md`.
+
 Deliberately excluded until justified: Dask, Zarr, xarray, MLflow, W&B, napari,
 Plotly, Lightning. A `runs/` directory with JSON manifests is sufficient
 experiment tracking for one person. Revisit at Phase 9.
@@ -162,22 +194,25 @@ experiment tracking for one person. Revisit at Phase 9.
 ## 9. Repository layout
 
 ```
-neurodecoder/
+unitwave/
   data/            session manifest, ONE + DANDI access, caching
   nwb/             intake, schema probe, capability report
   qc/              unit filtering, session-level QC
   preprocess/      binning, alignment, normalization  [VERSIONED — see R6]
   targets/         behavioural target construction
   splits/          split registry, leakage guards       [see R1, R2]
+  analysis/        Studio engine: event alignment, rasters, PSTHs  [UI calls only this]
+  studio/          local web UI: server + one HTML page
   representation/  population encoders (set-based, metadata tokens)
-  models/          baselines/, deep/, heads/
-  uncertainty/     calibration, conformal, ensembles
-  ood/             session-similarity, gating, selective prediction
+  models/          baselines/, deep/, heads/                     [PARKED]
+  uncertainty/     calibration, conformal, ensembles             [PARKED]
+  ood/             session-similarity, gating, selective prediction  [PARKED]
   latent/          state models  [descriptive only — see R5]
   evaluation/      metrics, protocols, the evaluation contract
   viz/             plots
-  agent/           report generation  [LLM boundary — see §6]
+  agent/           report generation  [LLM boundary — see §6]  [PARKED]
   cli/
+  env.py           UNITWAVE_* environment variables (old NEURODECODER_* still read)
 configs/
 docs/
 tests/

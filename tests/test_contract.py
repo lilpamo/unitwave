@@ -5,11 +5,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from neurodecoder.data.manifest import Manifest, manifest_versions
-from neurodecoder.evaluation.contract import ROWS, SessionData, _mean_over_folds, evaluate
-from neurodecoder.evaluation.nulls import draw_shifts
-from neurodecoder.preprocess.binning import load_preproc_config
-from neurodecoder.splits.registry import bin_range, held_out_groups, within_session
+from unitwave.data.manifest import Manifest, manifest_versions
+from unitwave.evaluation.contract import ROWS, SessionData, _mean_over_folds, evaluate
+from unitwave.evaluation.nulls import draw_shifts
+from unitwave.preprocess.binning import load_preproc_config
+from unitwave.splits.registry import bin_range, held_out_groups, within_session
 
 PREPROC = load_preproc_config()
 N_BINS, N_UNITS, CONTEXT = 600, 3, 5
@@ -121,13 +121,13 @@ def _run(provider=None, ceiling="auto", **kwargs):
     provider = provider or Provider(_cross_split())
     if ceiling == "auto":
         ceiling = Provider(_within_split(provider.split.partitions["test"]), provider.signal)
-    rows = dict(
-        model=LeastSquares,
-        model_with_task=SpikesTaskLeastSquares,
-        baseline_ridge=LeastSquares,
-        baseline_rrr=LeastSquares,
-        trialstruct=TaskLeastSquares,
-    )
+    rows = {
+        "model": LeastSquares,
+        "model_with_task": SpikesTaskLeastSquares,
+        "baseline_ridge": LeastSquares,
+        "baseline_rrr": LeastSquares,
+        "trialstruct": TaskLeastSquares,
+    }
     rows.update(kwargs.pop("rows", {}))
     return evaluate(provider, ceiling=ceiling, seed=0, **rows, **kwargs)
 
@@ -393,3 +393,56 @@ def test_a_null_with_no_valid_session_is_undefined_not_failed():
     assert result.per_session["null_shuffle"]["r2"].isna().all()
     assert "model vs null_shuffle: undefined" in str(result)
     assert not {(v.subject, v.row): v for v in result.verdicts}[("model", "null_shuffle")].beats
+
+
+def test_test_predictions_are_kept_for_every_real_label_row():
+    # S3: single-session verdicts resample the test predictions, so the contract keeps
+    # them: one row per test sample, per fold, for each row fit on the real labels.
+    result = _run(n_shifts=5)
+    assert set(result.predictions) == {
+        "model",
+        "model_with_task",
+        "baseline_ridge",
+        "baseline_rrr",
+        "null_trialstruct",
+    }
+    for row, table in result.predictions.items():
+        assert list(table.columns) == ["eid", "fold", "end", "y", "prediction"], row
+        counts = table.groupby("eid").size()
+        expected = result.per_session[row]["n_samples"].reindex(counts.index)
+        assert (counts == expected).all(), row
+    # The kept predictions reproduce the row's score.
+    model = result.predictions["model"]
+    e0 = model[model["eid"] == model["eid"].iloc[0]]
+    r2 = 1 - ((e0["y"] - e0["prediction"]) ** 2).sum() / ((e0["y"] - e0["y"].mean()) ** 2).sum()
+    assert r2 == pytest.approx(result.per_session["model"].loc[e0["eid"].iloc[0], "r2"])
+
+
+def test_progress_counts_every_fit_up_to_the_total():
+    seen = []
+    _run(
+        PseudoProvider(_cross_split()),
+        n_shifts=5,
+        n_pseudo=20,
+        progress=lambda d, t: seen.append((d, t)),
+    )
+    done, totals = zip(*seen)
+    # model, model_with_task, ridge, rrr, trialstruct, 5 shifts, 20 pseudo, ceiling.
+    assert set(totals) == {5 + 5 + 20 + 1}
+    assert list(done) == list(range(32))  # 0 before the first fit, 31 when done
+
+
+def test_baseline_rrr_can_be_left_out_only_with_a_reason():
+    provider = Provider(_within_split(["e00", "e01"]))
+    with pytest.raises(ValueError, match="reason"):
+        _run(provider, ceiling=None, n_shifts=5, rows={"baseline_rrr": None})
+    result = _run(
+        provider,
+        ceiling=None,
+        n_shifts=5,
+        rows={"baseline_rrr": None},
+        not_run={"baseline_rrr": "multi-session by design"},
+    )
+    assert "baseline_rrr" not in result.per_session and "baseline_rrr" not in result.predictions
+    assert result.not_run == {"baseline_rrr": "multi-session by design"}
+    assert "baseline_rrr: not run (multi-session by design)" in result.report()

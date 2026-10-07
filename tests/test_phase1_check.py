@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from neurodecoder.cli.phase1_check import run_check, select_sessions
-from neurodecoder.data.session import (
+from unitwave.cli.phase1_check import run_check, select_sessions
+from unitwave.data.session import (
     BEHAVIOUR_FIELDS,
     TRIAL_FIELDS,
     UNIT_FIELDS,

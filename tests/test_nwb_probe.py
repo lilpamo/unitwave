@@ -1,4 +1,3 @@
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -7,7 +6,8 @@ import pytest
 from pynwb import NWBHDF5IO, NWBFile, TimeSeries
 from pynwb.behavior import Position, SpatialSeries
 
-from neurodecoder.nwb.probe import main, probe
+from unitwave.env import env
+from unitwave.nwb.probe import main, probe
 
 
 def _write(path: Path, *, units=True, trials=True, behaviour=True) -> Path:
@@ -98,7 +98,7 @@ def test_cli_writes_json(tmp_path, capsys):
     assert out.exists()
 
 
-DATA_ROOT = Path(os.environ.get("NEURODECODER_DATA_ROOT", "~/data/neurodecoder")).expanduser()
+DATA_ROOT = Path(env("DATA_ROOT", "~/data/neurodecoder")).expanduser()
 EID = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
 NWB = (
     DATA_ROOT

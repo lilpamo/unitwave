@@ -1,16 +1,16 @@
-import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from neurodecoder.data.manifest import Manifest
-from neurodecoder.preprocess.binning import BinnedSpikes, PreprocConfig
-from neurodecoder.preprocess.normalize import fit_normalizer
-from neurodecoder.preprocess.windows import unwindow, window_plan
-from neurodecoder.qc.units import UnitQC
-from neurodecoder.splits.registry import held_out_session, within_session
+from unitwave.data.manifest import Manifest
+from unitwave.env import env
+from unitwave.preprocess.binning import BinnedSpikes, PreprocConfig
+from unitwave.preprocess.normalize import fit_normalizer
+from unitwave.preprocess.windows import unwindow, window_plan
+from unitwave.qc.units import UnitQC
+from unitwave.splits.registry import held_out_session, within_session
 
 PREPROC = PreprocConfig(bin_ms=20, qc=UnitQC(1.0, ("void", "root"), 0.1))
 FP = PREPROC.fingerprint()
@@ -148,7 +148,7 @@ def test_synthetic_counts_round_trip_through_normalised_windows():
         np.testing.assert_allclose(counts[:, covered], b.counts[:, covered], atol=1e-4)
 
 
-DATA_ROOT = Path(os.environ.get("NEURODECODER_DATA_ROOT", "~/data/neurodecoder")).expanduser()
+DATA_ROOT = Path(env("DATA_ROOT", "~/data/neurodecoder")).expanduser()
 EPHYS = DATA_ROOT / "bwm_compressed/bwm_ephys/1.2.1"
 BEHAVIOUR = DATA_ROOT / "bwm_compressed/bwm_behavior/2.0.0"
 EID = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
@@ -159,9 +159,9 @@ EID = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
 )
 def test_real_session_round_trips_to_windows_and_back():
     """Phase 2 success criterion: a session to tensors and back to spike counts."""
-    from neurodecoder.data.backends.bwm_compressed import load_session_bwm
-    from neurodecoder.data.manifest import build_manifest
-    from neurodecoder.preprocess.binning import preprocess_session
+    from unitwave.data.backends.bwm_compressed import load_session_bwm
+    from unitwave.data.manifest import build_manifest
+    from unitwave.preprocess.binning import preprocess_session
 
     manifest = build_manifest(EPHYS, BEHAVIOUR)
     session = load_session_bwm(EID, EPHYS)

@@ -5,9 +5,9 @@ import pandas as pd
 import pytest
 from sklearn.metrics import r2_score, roc_auc_score
 
-from neurodecoder.evaluation.contract import SessionData
-from neurodecoder.models.baselines.features import CVConfig, chunk_features
-from neurodecoder.models.baselines.rrr import RRRClassification, RRRRegression
+from unitwave.evaluation.contract import SessionData
+from unitwave.models.baselines.features import CVConfig, chunk_features
+from unitwave.models.baselines.rrr import RRRClassification, RRRRegression
 
 CV = CVConfig(n_folds=5, lambdas=tuple(np.logspace(-4, 4, 17)))
 N_BINS, CONTEXT, CHUNKS = 3000, 50, 5

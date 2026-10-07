@@ -1,0 +1,45 @@
+# Allen Brain Observatory Visual Coding Neuropixels, Brain Observatory 1.1 stimulus set,
+# as published on DANDI 000021 (version 0.251116.2246). What its session files hold,
+# checked on sub-707296975 ses-721123822 (docs/DECISIONS.md, "Step 6"). Read by
+# unitwave/nwb/intake.py. Only the session files are read, never the per-probe LFP files.
+name: allen_visual_coding
+label: Allen Visual Coding Neuropixels (DANDI 000021)
+task: allen_drifting_gratings
+
+# No trials table: each stimulus has its own presentations table, and each task reads
+# its own. Presentations overlapping the file's invalid times (per-probe intervals) are
+# marked (invalid_overlap), and the tasks exclude them by default (the user's decision).
+trials:
+  by_task:
+    allen_drifting_gratings: drifting_gratings_presentations
+    allen_static_gratings: static_gratings_presentations
+    allen_flashes: flashes_presentations
+  mark_invalid_times: true
+
+units:
+  # The units table has no electrode_group: a unit's probe is its peak electrode's group.
+  probe: location_electrode
+  # probe_vertical_position counts um up from the tip: on every probe, deep structures
+  # lie at 20-2,500 um, cortex above, and electrodes outside the brain at the top.
+  depth: {electrodes_column: probe_vertical_position}
+  # peak_channel_id is an electrode id (not a row). Empty locations are missing.
+  location:
+    electrode_id: {column: peak_channel_id}
+  # Allen's label, and the thresholds AllenSDK applies by default when it loads units
+  # (EcephysProjectCache: amplitude_cutoff <= 0.1, presence_ratio >= 0.9,
+  # isi_violations <= 0.5). The user's decision, 2026-10-02.
+  quality:
+    label: quality
+    criteria:
+      - {column: quality, values: [good]}
+      - {column: isi_violations, at_most: 0.5}
+      - {column: amplitude_cutoff, at_most: 0.1}
+      - {column: presence_ratio, at_least: 0.9}
+
+behaviour:
+  running_speed: processing/running/running_speed
+
+positions:
+  refused: >-
+    DANDI 000021's electrode z coordinate repeats its y on every electrode
+    (2,304 of 2,304 on ses-721123822), so the left-right position is missing

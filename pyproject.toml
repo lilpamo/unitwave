@@ -1,7 +1,7 @@
 [project]
-name = "neurodecoder"
+name = "unitwave"
 version = "0.1.0"
-description = "A reliability layer for cross-animal neural population decoding"
+description = "UnitWave Studio: a local app for analysis after spike sorting"
 requires-python = ">=3.11,<3.12"
 readme = "README.md"
 dependencies = [
@@ -35,7 +35,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["neurodecoder*"]
+include = ["unitwave*"]
 
 [tool.ruff]
 target-version = "py311"

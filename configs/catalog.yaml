@@ -1,0 +1,22 @@
+# Homepage session catalog (unitwave/analysis/catalog.py; docs/DECISIONS.md,
+# 2026-09-30).
+
+# A session matches a region only if it has at least this many of the release's good
+# units there (the region and its descendants). The page can raise or lower it.
+min_region_units: 10
+
+# Trial filters applied when an IBL session is opened from the homepage. bwm_include
+# keeps the release's included trials (on d23a44ef: reaction time 0.08-2 s); no-go
+# trials are excluded. Phy sessions get only the filters their events CSV supports.
+default_trial_filter:
+  bwm_include: true
+  exclude_nogo: true
+
+# "Open a Phy folder" only opens folders under this root (relative to data_root unless
+# absolute); paths outside it, including through symlinks, are refused. Each folder
+# pairs with the events.csv beside its params.py.
+phy_root: phy
+
+# "Open an NWB file" only opens .nwb files under this root (relative to data_root
+# unless absolute), with the same refusals. DANDI downloads live here (dandi/000017/).
+nwb_root: dandi

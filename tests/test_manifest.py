@@ -1,12 +1,13 @@
 import json
-import os
+import zipfile
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from neurodecoder.data.manifest import build_manifest, read_manifest, write_manifest
+from unitwave.data.manifest import build_manifest, read_manifest, write_manifest
+from unitwave.env import env
 
 # Two sessions: "s1" with probes p1 (2 good units of 3 clusters) and p2 (1 of 1),
 # and "s2" with probe p3 (1 of 2). s1 has wheel + left/body pose, s2 wheel only.
@@ -76,6 +77,7 @@ def _fake_release(tmp_path: Path, **overrides) -> tuple[Path, Path]:
                 "pid": ["p1", "p1", "p2", "p3"],
                 "eid": ["s1", "s1", "s1", "s2"],
                 "cluster_id": overrides.get("unit_cluster_ids", [0, 1, 0, 0]),
+                "acronym": ["CA1", "PO", "CA1", "LP"],
                 "beryl_acronym": ["CA1", "PO", "CA1", "LP"],
             }
         ),
@@ -113,6 +115,22 @@ def _fake_release(tmp_path: Path, **overrides) -> tuple[Path, Path]:
             }
         ),
     )
+    # s1's session shard: the left camera has motion energy and a skipped pupil; the body
+    # camera has motion energy. s2 has no shard.
+    shard = behaviour / "sessions" / "s1.zip"
+    shard.parent.mkdir()
+    meta = {
+        "arrays": {"leftCamera.features": {}, "bodyCamera.features": {}},
+        "cameras": {
+            "leftCamera": {
+                "columns": ["nose_tip_x", "whiskerMotionEnergy", "pupilDiameter_raw"],
+                "skipped_sources": ["pupilDiameter_raw"],
+            },
+            "bodyCamera": {"columns": ["bodyMotionEnergy"]},
+        },
+    }
+    with zipfile.ZipFile(shard, "w") as z:
+        z.writestr("meta.json", json.dumps(meta))
     return ephys, behaviour
 
 
@@ -140,8 +158,35 @@ def test_region_list_is_sorted_and_unique(tmp_path):
 
 def test_modalities_use_canonical_names(tmp_path):
     s = build_manifest(*_fake_release(tmp_path)).sessions.set_index("eid")
-    assert list(s.loc["s1", "modalities"]) == ["pose_body", "pose_left", "wheel"]
+    assert list(s.loc["s1", "modalities"]) == [
+        "motion_energy_body",
+        "motion_energy_left",
+        "pose_body",
+        "pose_left",
+        "wheel",
+    ]
     assert list(s.loc["s2", "modalities"]) == ["wheel"]
+
+
+def test_motion_energy_and_pupil_follow_the_backends_rule(tmp_path):
+    # Present only if the camera has features and the column, and it wasn't skipped.
+    m = build_manifest(*_fake_release(tmp_path))
+    mods = dict(zip(m.sessions["eid"], m.sessions["modalities"]))
+    assert "motion_energy_left" in mods["s1"] and "motion_energy_body" in mods["s1"]
+    assert "pupil_left" not in mods["s1"]  # skipped by the bwm_behavior build
+    assert not [x for x in mods["s2"] if x.startswith(("motion_energy", "pupil"))]
+
+
+def test_region_units_count_good_units_per_allen_region(tmp_path):
+    m = build_manifest(*_fake_release(tmp_path))
+    table = m.region_units.set_index(["pid", "acronym"])["n_good_units"]
+    assert table.to_dict() == {
+        ("p1", "CA1"): 1,
+        ("p1", "PO"): 1,
+        ("p2", "CA1"): 1,
+        ("p3", "LP"): 1,
+    }
+    assert m.provenance["manifest_version"] == 2
 
 
 def test_insertion_tip_and_top_in_meters(tmp_path):
@@ -173,9 +218,10 @@ def test_write_and_read_round_trip(tmp_path):
         assert len(original) == len(loaded)
     s = back.sessions.set_index("eid")
     assert list(s.loc["s1", "regions"]) == ["CA1", "PO"]
+    pd.testing.assert_frame_equal(back.region_units, m.region_units)
 
 
-DATA_ROOT = Path(os.environ.get("NEURODECODER_DATA_ROOT", "~/data/neurodecoder")).expanduser()
+DATA_ROOT = Path(env("DATA_ROOT", "~/data/neurodecoder")).expanduser()
 EPHYS = DATA_ROOT / "bwm_compressed/bwm_ephys/1.2.1"
 BEHAVIOUR = DATA_ROOT / "bwm_compressed/bwm_behavior/2.0.0"
 
@@ -232,3 +278,13 @@ def test_real_probe_tips_are_deeper_than_their_tops(real):
 def test_real_sessions_without_pose(real):
     has_pose = real.sessions["modalities"].map(lambda m: any(x.startswith("pose_") for x in m))
     assert int((~has_pose).sum()) == 15
+
+
+@needs_bwm
+def test_real_modalities_match_what_the_backend_loads(real):
+    from unitwave.data.backends.bwm_compressed import load_session_bwm
+
+    eid = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
+    listed = set(real.sessions.set_index("eid").loc[eid, "modalities"])
+    loaded = set(load_session_bwm(eid, EPHYS, behaviour_root=BEHAVIOUR).behaviour)
+    assert listed == loaded

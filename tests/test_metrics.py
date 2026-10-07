@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 from sklearn import metrics as skm
 
-from neurodecoder.evaluation.metrics import (
+from unitwave.evaluation.metrics import (
     EvalConfig,
     classification_metrics,
     expected_calibration_error,

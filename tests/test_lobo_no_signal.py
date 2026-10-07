@@ -12,8 +12,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from neurodecoder.data.manifest import Manifest, manifest_versions
-from neurodecoder.data.session import (
+from unitwave.data.manifest import Manifest, manifest_versions
+from unitwave.data.session import (
     BEHAVIOUR_FIELDS,
     TRIAL_FIELDS,
     UNIT_FIELDS,
@@ -21,18 +21,18 @@ from neurodecoder.data.session import (
     Session,
     TimeSeries,
 )
-from neurodecoder.evaluation.contract import evaluate
-from neurodecoder.evaluation.data import SplitData
-from neurodecoder.evaluation.nulls import generate_pseudo_blocks
-from neurodecoder.models.baselines.features import load_baseline_config
-from neurodecoder.models.baselines.linear import (
+from unitwave.evaluation.contract import evaluate
+from unitwave.evaluation.data import SplitData
+from unitwave.evaluation.nulls import generate_pseudo_blocks
+from unitwave.models.baselines.features import load_baseline_config
+from unitwave.models.baselines.linear import (
     LogisticDecoder,
     SpikesAndTaskLogistic,
     TrialStructureLogistic,
 )
-from neurodecoder.models.baselines.rrr import RRRClassification
-from neurodecoder.preprocess.binning import load_preproc_config
-from neurodecoder.splits.registry import leave_one_block_out
+from unitwave.models.baselines.rrr import RRRClassification
+from unitwave.preprocess.binning import load_preproc_config
+from unitwave.splits.registry import leave_one_block_out
 
 PREPROC = load_preproc_config()
 N_TRIALS, TRIAL_S, N_UNITS, RATE_HZ = 450, 4.5, 8, 5.0

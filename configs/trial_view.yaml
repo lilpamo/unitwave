@@ -1,0 +1,14 @@
+# Single-trial view (unitwave/analysis/trial_view.py; docs/DECISIONS.md, 2026-09-30).
+# Descriptive only: no statistic, no null.
+
+# The plot runs from the first shown trial's start (intervals_0) minus pre_pad_s to
+# the last shown trial's end (intervals_1) plus post_pad_s. Seconds.
+pre_pad_s: 0.5
+post_pad_s: 0.5
+# Wheel speed bins for the trial's speed trace (the same computation as the
+# wheel-speed PSTH, analysis/movement.binned_wheel_speed).
+speed_bin_s: 0.02
+# Neighbouring trials: how many consecutive trials the option shows, and the most
+# the view accepts (spikes of every shown unit across that many trials).
+n_trials: 3
+max_trials: 9

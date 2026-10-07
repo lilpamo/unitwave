@@ -1,0 +1,83 @@
+/* Homepage additions on top of app.css's tokens and components. */
+
+/* The homepage's own frame (redesign, 2026-10-05): the catalogue's filters on the left,
+   the views beside them; one screen tall, each side scrolling. */
+.shell { flex: 1; min-height: 0; display: grid; grid-template-columns: 260px minmax(0, 1fr); }
+.rail { border-right: 1px solid var(--line); background: var(--surface); padding: 16px; display: flex; flex-direction: column; gap: 20px; overflow: auto; }
+.rail .grow { flex: 1; min-height: 0; }
+.view[hidden] { display: none !important; }
+.shell.across { grid-template-columns: minmax(0, 1fr); }
+.shell.across .rail { display: none; }
+.view { display: grid; gap: 12px; align-content: start; }
+/* The matching sessions beside where their probes are, and the ways to open your own
+   data; the session list is the widest column. */
+.choosegrid { display: grid; gap: 12px; grid-template-columns: minmax(0, 1.4fr) minmax(360px, 1fr); align-items: start; }
+.side { display: grid; gap: 12px; }
+.sessionbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 4px; }
+.sessionbar .sets { flex: 1 1 280px; margin: 0; }
+.area-sessions .note#setMsg { margin: 0 0 6px; }
+.entry .tabs { align-self: flex-start; margin-bottom: 10px; font-size: 12px; }
+.tabpane[hidden] { display: none; }
+@media (max-width: 1250px) { .choosegrid { grid-template-columns: 1fr; } .side { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; } }
+@media (max-width: 960px) { .side { grid-template-columns: 1fr; } }
+@media (max-width: 860px) {
+  body { height: auto; }
+  .shell { display: block; }
+  .rail { border-right: 0; border-bottom: 1px solid var(--line); overflow: visible; }
+  .rail .tree { max-height: 320px; overflow: auto; }
+  main { overflow: visible; }
+}
+.field { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 0 0 8px; color: var(--ink2); }
+.field select, .field input { max-width: 150px; }
+.field input[type=number] { width: 70px; }
+.checks { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.checks label { display: inline-flex; align-items: center; gap: 4px; }
+.trialfilters { display: grid; gap: 8px; }
+.trialfilters .lbl { color: var(--muted); display: inline-block; width: 80px; }
+
+.counts .big { font-size: 20px; font-weight: 600; }
+/* The header card: the theme's brand lockup, then the catalog summary. */
+.hero { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 28px; padding: 14px 16px; }
+.hero .lockup img { height: 56px; width: auto; }
+.hero .summary { flex: 1 1 280px; }
+.counts .note { margin-top: 4px; }
+.area-sessions .table { max-height: calc(100dvh - 300px); min-height: 240px; }
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--ink); }
+th[aria-sort] { color: var(--ink); }
+td .dot { color: var(--accent); }
+tbody tr td.open-cell { padding: 2px 4px; }
+#rows .btn { margin: 0; }
+/* Opening a session takes seconds: the theme's splash fills the screen meanwhile, on
+   its own background colour, with the progress panel always below it (a column, so
+   a short window shrinks the splash instead of putting the panel over it). */
+.loading { position: fixed; inset: 0; background: #ffffff; display: flex; flex-direction: column; align-items: center; padding-bottom: 6vh; z-index: 20; }
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .loading { background: #090d18; }
+}
+:root[data-theme="dark"] .loading { background: #090d18; }
+.loading img { flex: 1 1 auto; min-height: 0; width: 100%; object-fit: contain; }
+.loading .panel { flex: none; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 28px; text-align: center; min-width: 300px; }
+.spinner { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent); margin: 0 auto 10px; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+.loading[hidden] { display: none; }
+.overview { position: relative; height: 320px; border-radius: 8px; overflow: hidden; background: var(--plane); }
+.overview canvas { display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; font-size: 12px; color: var(--ink2); }
+.legend span.item { display: inline-flex; align-items: center; gap: 5px; }
+.inline { display: flex; gap: 6px; margin: 4px 0; }
+.inline input, .inline select { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--axis); border-radius: 6px; padding: 4px 6px; }
+.inline .btn, .list .btn { margin: 0; }
+.inline label { align-self: center; color: var(--ink2); }
+.list { display: grid; gap: 4px; max-height: 260px; overflow: auto; font-size: 12px; }
+.list .row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.list .row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+td.pick, th.pick { width: 24px; }
+
+/* Region summaries (S5): runs written on the command line, drawn by the server. */
+.summaries .field { justify-content: flex-start; }
+.summaries .field select { max-width: 100%; flex: 1; }
+.summaryfigs { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+.summaries .caption { min-height: 0; }
+@media (max-width: 1100px) { .summaryfigs { grid-template-columns: 1fr; } }

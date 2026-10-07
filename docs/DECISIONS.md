@@ -6,6 +6,2584 @@ first.
 
 ---
 
+### 2026-10-05 — Step 14a: recordings: several probes, events and rig behaviour (`data/backends/recording.py`)
+
+**What (the plan's "own data, complete", its first part):** a lab's session with several
+Phy probes, its events and its rig's behaviour opens as one session.
+
+**Chosen by the user (2026-10-05, in chat):**
+- **A `recording.yaml` describes the recording,** in the session's folder:
+  - the probes, each a Phy folder with its own sync pulses and channel locations;
+  - the events and their clock's pulses;
+  - the behaviour files, each with its name in the task and its clock.
+
+  Paths are relative to the file and must stay in its folder. Anything malformed is
+  refused, saying where. The format is in the module's docstring.
+- **One clock, the events clock:** every probe's spikes, and behaviour recorded on a
+  probe's clock, move onto it, each by its own fit (the inverse of step 13a's line). A
+  single Phy folder without a recording file keeps step 13a's rule.
+- **Behaviour files:**
+  - **CSV:** a time column in seconds (`time`, `times`, `t_s` or `timestamps`) and
+    value columns. `column` picks one; otherwise each value column is a channel.
+  - **NumPy:** `<name>.times.npy` with `<name>.values.npy`.
+  - **Times must increase.**
+
+**Mine, flagged:**
+- **A probe without `sync`** is taken to be on the events clock already, and the report
+  says so.
+- **Spikes beyond the pulses:** spikes more than `max_outside_s` (10 s) beyond them aren't
+  on a checked clock. They are dropped and counted per probe in the report, so nothing
+  is silently kept or lost.
+- **Fields known for every probe:** a unit field (region, position, depth) counts as
+  known only if every probe knows it; otherwise it is missing, with the reason.
+- **QC rule:** the Phy group rule applies when every probe has label files; otherwise
+  the spike-time rule applies to all.
+
+**Where it applies:**
+- **Opening:** a folder under the Phy root that holds a `recording.yaml` opens as that
+  recording from the homepage's Phy tab, which marks such folders. The command line
+  has `--recording`.
+- **The project** hashes the file and everything it names: each probe's Phy files, the
+  events, the pulses, the locations and the behaviour.
+- **The page:** "What this file supports" lists each probe's clock fit and dropped
+  spikes, and each behaviour signal's file, clock and samples.
+
+**Proven:**
+- **Two hand-built probes on different clocks** (+1.5 s and 20 ppm; −0.7 s and −15
+  ppm): a unit planted 10 ms after each stimulus lands there on the events clock,
+  within a sample.
+- **Behaviour on a probe's clock** comes back onto the events clock exactly.
+- **Refusals:** spikes beyond the pulses are dropped and counted; probes without pulses
+  are taken as they are; seven malformed files are refused.
+- **Opening:** from the homepage (the rig's wheel gives the wheel-speed plot over 40
+  trials, and the project hashes every file) and from the command line.
+- **The browser:** the recording's report and its wheel plot.
+
+**Next, 14b:** region summaries over saved projects.
+
+### 2026-10-05 — A Trials workspace (`studio/server.trials_json`, `analysis/conditions.TrialSelection.failed`)
+
+**Asked by the user:** where to see the whole single-trial raster. It sat half-width
+beside the heatmap, blank until a trial was picked. **Chosen:** its own workspace (one of
+four options offered).
+
+**The workspace:**
+- **A strip of every trial** across the top:
+  - **Bar height:** the reaction time (the task's movement minus its stimulus), drawn
+    from 0 to 1 s; longer bars are full height.
+  - **Colour:** the trial's level of a chosen condition, with the page's split colours.
+    The default is the split, then the task's outcome; it can be none.
+  - **Faint bars:** trials the trial filters drop.
+  - **Interaction:** hovering names the trial, its level, reaction time, and whether it
+    was kept or why it was dropped. A click opens it.
+- **The single-trial view below it, full width.** It opens on the first kept trial, never
+  blank; ← → step as before.
+- **From Explore:** clicking a raster row opens that trial here.
+- **Population** now holds only the population views, at most 820 px wide so the
+  heatmap stays readable.
+
+**What the server gives** (`/api/trials`): every trial's index, start, kept or not and
+the reasons it failed, reaction time, and level, with the level names and colours. The
+page only maps them to bars.
+- **Per-trial reasons:** `apply_trial_filter` now also keeps, per reason, which trials
+  failed it (`TrialSelection.failed`, optional). Its counts are unchanged.
+
+**Checked:**
+- **Tests:** the per-trial reasons on hand-built trials. On d23a44ef: all 410 trials, 290
+  kept, the reaction times equal `analysis.movement.reaction_times`, choice's level names
+  and colours, and the default colour order.
+- **The browser:** the strip coloured by outcome, a click opening trial 205, its tooltip,
+  and a raster-row click in Explore landing in Trials.
+
+### 2026-10-05 — Homepage redesign, and the homepage layout the session redesign broke (`studio/home.html`, `static/home.css`, `static/home.js`)
+
+**A regression fixed first:** the session page redesign (3272f83, already pushed) removed
+the shared `.shell` and `.rail` styles from app.css. The homepage still used them, so its
+filter rail spanned the page and everything stacked under it. I hadn't checked the
+homepage after that change. The homepage's frame now lives in home.css, which only the
+homepage loads.
+
+**The redesign, as proposed to the user (2026-10-05):**
+- **Two views in the top bar:**
+  - **Choose data:** the release's catalogue, and your own data.
+  - **Across sessions:** region summaries, full width. The catalogue's filters are hidden
+    there, since summaries run over saved sets.
+- **Choose data:**
+  - **Filters:** stay on the left.
+  - **Matching sessions,** the widest column, now leads each row with its Open button and
+    cache dot, so the button is never scrolled out of view. Rows are compact.
+  - **Above the table:** a Trial filters chip (its summary, e.g. "BWM inclusion · no-go
+    excluded", opening the controls) and saving the ticked sessions as a set.
+  - **Beside the table:** where the matching probes are, and one "Open your own data"
+    card with tabs: Recent projects, NWB file, Phy folder, Session sets.
+- **A smaller header:** the brand lockup is 56 px tall, beside the catalogue's counts.
+- **Narrower screens:**
+  - **Under 1250 px:** the side cards move under the table.
+  - **Under 860 px:** one column, with the region tree capped at 320 px so the session
+    list is about a screen down, not 8,000 px.
+- **Remembered in this browser:** the view and the tab shown.
+
+**Not changed:** every id, request and number; the brand files the page uses.
+
+**Checked in the browser:**
+- **Both views at 1440 px,** and the NWB tab;
+- **Opening:** d23a44ef opens from its row;
+- **820 px:** no sideways scroll.
+
+### 2026-10-05 — Session page redesign: workspaces, a context bar, and Explore in three columns (`studio/index.html`, `static/app.css`, `static/app.js`)
+
+**Why (the user, 2026-10-05):** "the app works well, but it doesn't make sense in terms
+of layout". Measured at 1440 × 900:
+- **The left rail was about three screens tall,** mixing filters with five analyses; the
+  region tree sat at its very bottom.
+- **The selected unit's raster and PSTH,** the view used most, had a 330 × 474 card,
+  while the units table was 470 × 956.
+- **The brain and the trial view were below the fold,** and test results were small
+  sentences in the rail, away from their buttons.
+
+**The design, agreed with the user (sketched in chat, 2026-10-05):** the page follows how
+a session is read: where the units are, which units, what one unit does, whether it is
+real.
+- **Four workspaces in the top bar:**
+  - **Explore,** in three columns, narrow to wide:
+    - **Where:** the 3-D brain and the region tree, together;
+    - **Units:** the table;
+    - **Selected unit:** its tabs, with the probe strip beside it.
+  - **Population:** the heatmap, trajectories and decoding table, beside the
+    single-trial view.
+  - **Statistics:** one card per test (what it tests, its null and correction, Run,
+    its result), with the analysis log listed below.
+  - **Recipes:** the guided panel, over whichever workspace is open. A step now shows
+    the workspace its result is in.
+- **A context bar, always visible:** the event, the window and bins, the split, the
+  trials kept and the units shown, each a chip opening its controls. Every view and
+  test uses what it says.
+- **The top bar holds one line at laptop width:**
+  - the session's name opens what its files support, and the project file's name;
+  - Save and Export report there;
+  - the log total opens the log;
+  - on screens under 1300 px the wordmark gives way.
+- **Narrower screens:**
+  - **Under 1250 px:** two columns, with the brain and the regions side by side in a
+    wide Where card.
+  - **Under 860 px:** one column, the selected unit first.
+- **Up and down arrows step through the units** in the table's order, and every view
+  follows. This is pulled forward from the plan-only unit browsing extras by the user's
+  choice; the rest of that list stays plan-only. Left and right still step through
+  trials.
+- **The workspace shown is remembered in this browser** (localStorage), not in the
+  project file, whose view settings are unchanged.
+
+**Not changed:** every endpoint, number, caption and test; every element id the code uses;
+the homepage, which is the next pass. No Python changed.
+
+**Checked in the browser** (d23a44ef):
+- **Explore** at 1440, 1200 and 820 px, dark and light;
+- **Statistics:** a responsiveness run gives its result in its card and an entry in the
+  log;
+- **Population:** the heatmap and the trial view side by side;
+- **Controls:** the Units chip's controls, and arrow keys stepping through three units.
+
+### 2026-10-05 — Step 13b: channel locations for Phy folders (`data/channel_locations.py`)
+
+**What (plan step 13, its second part):** histology-aligned channel locations give a
+Phy folder's units brain regions and 3-D positions. The region tree, region levels,
+the probe strip's regions, the brain view and recipe 3 then work on a lab's own
+recordings.
+
+**Files read (as plan step 13 specifies):**
+- **The IBL alignment GUI's `channel_locations.json`:** `channel_N` entries with x, y, z
+  (µm from bregma, IBL's axes), lateral and axial (the channel's place on the probe),
+  brain_region and brain_region_id. The id must name the same region as the acronym;
+  a mismatch is refused, naming the channel.
+- **A CSV:** channel, ccf_ap_um, ccf_dv_um, ccf_ml_um, acronym, and optionally lateral_um
+  and axial_um. CCF positions are converted to IBL's metres from bregma with the
+  inverse of `analysis.atlas.ccf_um`.
+- **Acronyms:** every one must be Allen CCF 2017's, as for NWB files.
+
+**Mine, flagged:**
+- **How a unit finds its channel:** it takes its peak channel (largest peak-to-peak of
+  its main template, as depth already did). That channel is matched to the file by its
+  position on the probe (lateral, axial µm) whenever the file gives positions, so the
+  file's channel numbering needn't match Kilosort's. A file without positions (a CSV
+  without lateral_um and axial_um) is matched by channel number, Phy's channel_map.npy
+  where present.
+- **Refusals:** a unit whose channel isn't in the file is refused ("is it this probe's
+  alignment?"), and so is a folder without templates.
+- **Positions follow IBL's convention** (metres from bregma), as the BWM backend's do, so
+  the brain view needs no second path.
+
+**Where it applies:**
+- **Opening:** the homepage's Phy section has an optional locations field (under the
+  Phy root), and the command line has `--locations`.
+- **The project** records the file's sha256.
+- **The page:** "What this file supports" names the file, or says there are no regions.
+
+**Proven:**
+- **Hand-built cases:** the GUI file and the CSV are read, and the refusals hold.
+- **On d23a44ef probe00:** IBL's own sorting written as a Phy folder (templates peaking
+  on each cluster's channel), with a channel_locations.json from IBL's own alignment
+  files. All 114 units the BWM backend has for probe00 get its acronym and its x, y, z
+  (within 1e-9 m).
+- **Studio:** opening with a locations file gives the region tree, the brain view's units
+  and probe track, the report, and the project hash.
+- **The browser:** that d23a44ef Phy folder showed 161 QC-passing units in 7 Beryl
+  regions, the probe strip (VISam, CA1, DG, LP, Eth, PO), and the 3-D view with its
+  track.
+
+**Not built:** region summaries across Phy folders. `cli.summarise` reads IBL sets and
+NWB files only.
+
+### 2026-10-05 — Step 13a: clock sync for Phy folders (`data/sync.py`, `configs/sync.yaml`)
+
+**What (plan step 13, its first part):** a Phy folder's events can be on another clock
+than its spikes (the NIDQ board's, a behaviour computer's). They are moved onto the
+probe's clock from the same sync pulses recorded on both. This replaces step 1's only
+rule, that events must already be on the probe's clock; without pulse files that rule
+still holds.
+
+**Chosen by the user (2026-10-05, in chat):**
+- **Files read:** CatGT edge files (one time per line) and IBL's
+  `_spikeglx_sync.times*.npy`, using the rising fronts of the sync channel. The channel
+  is the file's only one, or the `syncNiChan` of a `.nidq.meta` beside it, or named;
+  otherwise refused.
+- **The fit:** a line, offset plus drift, from the events' clock to the probe's.
+  Refused when any pulse is more than 1 ms off it; the offset, the drift and the
+  largest and RMS residuals are always reported.
+- **Different pulse counts:** refused, giving both counts. Which pulse is which can't be
+  guessed for a regular square wave.
+- **The download:** IBL's d23a44ef sync files, 60.9 MB into the existing ONE cache.
+
+**Mine, flagged:** event times more than 10 s outside the pulses are refused
+(`max_outside_s`), because the line isn't checked there.
+
+**Where it applies:**
+- **The loader** moves the task's time columns only; conditions such as contrasts are
+  never touched.
+- **Opening:** the homepage's Phy section has two optional pulse fields, kept under the
+  Phy root like the folder. The command line has `--sync-probe` and `--sync-events`.
+- **The project** records both files' sha256 (IBL's with their channels and
+  polarities), so a changed pulse file is reported on reopening. Older projects have
+  none and open as before.
+- **The page** shows the fit under "What this file supports", or says the events are
+  taken to be on the probe's clock.
+
+**Proven:**
+- **Planted values:** an offset and drift are recovered from simulated jittered pulses
+  (within 0.01 ms and 0.05 ppm). A 3 ms jump is refused, and so are counts that differ
+  by one.
+- **On d23a44ef:** probe00's 3,669 pulses against the NIDQ's (channel 3, from its
+  meta file):
+  - **The fit:** offset 0.002 ms, drift 10.1 ppm, largest residual 0.082 ms (RMS
+    0.028 ms).
+  - **Against IBL's own alignment** (its probe00 map, every 20 s): within 0.073 ms at
+    all 183 points inside the pulses. The test asserts within 0.1 ms.
+- **The browser:** a scratch Phy folder opened with pulse files shows its fit in "What
+  this file supports"; the homepage's new section names the tolerance from the config.
+
+**Next, 13b:** channel locations. Units get regions and positions from the IBL
+alignment GUI's `channel_locations.json` or a CSV.
+
+### 2026-10-05 — Responsiveness refuses periodic and back-to-back presentations (`analysis/responsiveness.py`, `configs/analysis.yaml`)
+
+**The problem** (docs/NEGATIVE_RESULTS.md, 2026-10-02): on Allen flashes, 0 of 430 units
+were labelled responsive, which reads as a finding but is the test's lack of power.
+
+**The first fix failed** (NEGATIVE_RESULTS, 2026-10-05). It dropped the shifts that line
+periodic presentations up with themselves. It was signed off, then withdrawn before
+shipping: on hand-built units that ignore the events, it labelled 4 to 12 of 200 as
+responsive. With strictly periodic events the remaining shifts are only a few distinct
+phases, so the reported p is far too small.
+
+**Decided by the user (2026-10-05): refuse, saying why.** The null itself is unchanged
+and stays calibrated. Both refusals are decided from event times alone.
+- **Periodic presentations:**
+  - **The rule:** a shift's self-overlap is the mean, over events, of the other event
+    onsets within the windows' span (0.5 s) of each shifted event. When more than
+    `max_realigned_fraction` (0.25) of the null's shifts have a self-overlap above
+    `max_self_overlap` (0.5), the test is refused.
+  - **The message:** the presentations are periodic, the null can't separate a
+    response from the stimulus cycle, and a count would not be a finding; compare
+    conditions with selectivity instead.
+- **Back-to-back presentations:**
+  - **The rule:** when more than `max_close_fraction` (0.5) of events have another
+    within the windows' span, the test is refused.
+  - **The message:** each baseline falls in the previous presentation's response.
+
+**Where it lands:**
+
+| Events | Shifts realigned | Verdict |
+|---|---|---|
+| IBL (d23a44ef, 3a3ea015; every event) | 0% (self-overlap ≤ 0.29) | tested, null unchanged |
+| Steinmetz Richards | 0% (≤ 0.39) | tested, unchanged |
+| MC_Maze | about 1% | tested, unchanged |
+| Allen drifting gratings (blocks, 3.003 s) | 15% | tested, unchanged (229 of 447) |
+| Allen flashes (2.002 s) | 50% | refused: periodic |
+| Allen static gratings (0.25 s) | n/a | refused: back to back |
+
+**Effects elsewhere:**
+- **A region summary** leaves such sessions out, with the reason.
+- **Studio** shows the refusal where the count would have been, and the analysis log
+  counts no test.
+- **Tests:**
+  - five Studio mechanics tests use 3-second sessions with two trials. Their hand-built
+    configs set both refusal thresholds to 1.0 (refusals off), with a comment;
+  - one hand-built gratings session now has jittered trial starts, as real trials do;
+  - the refusals and the calibration of the designs that keep the test have their own
+    tests (`tests/test_responsiveness_periodic.py`).
+
+**Not built:** a paired test within presentations, which would give flashes an answer.
+It needs its own calibration and sign-off.
+
+### 2026-10-03 — Step 9b: the analysis log and held-out plans, built (`studio/analysis_log.py`, `studio/plans.py`, `cli/plan.py`)
+
+**Built as designed** (the entry below), in these places:
+- `studio/analysis_log.py`: entries, keys and the running total;
+- `studio/plans.py`: plans, claims, a session's or a set's status;
+- `cli/plan.py`: writes a plan;
+- `Studio`: logs responsiveness, selectivity, movement locking, connections and
+  decoding;
+- `cli/summarise`: marks a region summary;
+- the page: the top bar's total, and each result's status in the rail and the Recipes
+  panel.
+
+**Details settled while building:**
+- **Decoding's logged parameters:** its target and the units shown, not the page's
+  trial filter. Its trials are the target's own (the task's decoding filters).
+- **Starting decoding from a recipe:** the request names the step, and the server
+  checks the step decodes that target, so a page can't claim a plan with another
+  target.
+- **A region summary that left a session out is exploratory,** saying so: the planned
+  set wasn't run whole. It claims nothing.
+- **Plans are read from `<data_root>/plans/`.** Projects keep their place under
+  `projects/`. Files from before 9b open with an empty log.
+- **The running total counts distinct tests.** A test reused from the page's cache was
+  never re-run, so it isn't logged.
+
+**Checked:**
+- **Tests (hand-built Phy folders):**
+  - a test is written to the project file at once, with no outcome;
+  - a reopened project restores the log, and an identical re-run is a repeat;
+  - a planned recipe step is confirmatory once, then exploratory from another project;
+  - other units, another trial filter, changed files, a run before the plan, or a
+    manual test are exploratory, each with its reason;
+  - an edited plan is refused.
+- **A planned region summary on Steinmetz Richards:** confirmatory once, then
+  exploratory.
+- **In the browser (MC_Maze, a scratch project file):** "Log: 2 tests · 60 hypotheses
+  · all exploratory"; the rail and the panel name each result's status.
+
+### 2026-10-03 — Step 9b design: the analysis log and held-out plans (before building)
+
+**Why:** a label survives correction across the units of one test. It doesn't survive a
+researcher running twenty tests and reporting the one that worked. The log makes that
+number visible, and a plan named in advance is the only way a result is called
+confirmatory.
+
+**Chosen by the user (2026-10-03, in chat):**
+1. **When a test is logged:** at once, written to the project file the moment it runs.
+   The file is created at the first test if it wasn't saved yet. Save project still
+   sets the view.
+2. **What is confirmatory:** a held-out plan naming the sessions, the recipe steps to
+   run on them, and the trial filter, saved with a hash and time before any run. Only
+   the first run of a planned step on a planned session, after the plan was saved, is
+   confirmatory. Everything else, manual tests included, is exploratory.
+3. **Repeats:** logged, counted once. The same test on the same data, units, trials
+   and parameters gives the same numbers, because every null is seeded or exact.
+
+**The log (`analysis_log` in the project file):**
+- **One entry per test run:**
+  - `at`, and `kind` (responsiveness, selectivity, movement_locking, connections or
+    decoding);
+  - `what`, in words;
+  - its parameters: event, split, movement-free, units shown, probe, trial filter,
+    decoding target;
+  - `n_tests`, the size of the family it was corrected over (units, pairs, or decoding
+    comparisons), with its units and trials;
+  - `recipe`: the recipe step that ran it, if any;
+  - `key`: a sha256 over the session fingerprint, the kind, the parameters and the
+    configs' hashes;
+  - `repeat`: true when that key is already in the log;
+  - `status`: exploratory or confirmatory, with the reason or the plan.
+- **Logged only when computed:** a result reused from the page's cache is the same
+  test and isn't logged again. Decoding is logged when it finishes; a run that fails
+  produced no test.
+- **No outcomes:** the project file still holds no results. Opening it recomputes
+  them.
+- **The running total,** in the top bar: distinct tests, and the hypotheses they
+  tested (the sum of their n_tests), with how many are confirmatory.
+- **Every result says its status:** the Recipes panel and the rail's summaries are
+  marked exploratory, or confirmatory under plan X.
+
+**Held-out plans (`<data_root>/plans/<name>.unitwave-plan.json`, written by `python -m
+unitwave.cli.plan`):**
+- **What a plan holds:**
+  - its name, the task, and the sessions: IBL eids, or NWB or Phy files with their
+    sha256;
+  - the recipe steps (e.g. `choice_beyond_stimulus/selective`) and the trial filter;
+  - `saved_at`, and a sha256 over all of it.
+- **The unit set is fixed:** QC-passing units of every probe, as the recipes run by
+  default.
+- **A plan is never edited.** A name already used is refused, and an edited file (hash
+  mismatch) is refused with the reason, so nothing runs as confirmatory under it.
+- **Claims (`<name>.runs.jsonl`, beside the plan, append-only):**
+  - the first planned run of each step on each session writes a claim;
+  - a later run, in any project, finds the claim and is exploratory, saying when the
+    planned run happened.
+- **A run is confirmatory only if all of these hold:**
+  - a recipe step, in a plan that names this session (the file's sha256 matches) and
+    this step;
+  - the plan was saved before the run;
+  - the page's trial filter is the plan's, and its unit set the plan's;
+  - no claim exists yet.
+  Otherwise it is exploratory, and the reason is logged.
+- **Region summaries (recipe 3, step 2):** a `cli.summarise` run is confirmatory when
+  a plan names exactly its sessions and that step, with the same trial filter, saved
+  before the run, and nothing claimed yet. Its manifest and homepage caption say which.
+
+**Not in 9b:** making plans from the page (the command line writes them); per-test
+outcomes in the log.
+
+### 2026-10-03 — Step 9a: guided recipes (`analysis/recipes.py`, `configs/recipes/`, the Recipes panel)
+
+**What (the user's step 9, its first part):** three recipes, each a question answered
+by a sequence of Studio's own analyses. Their wording was approved by the user before
+anything was built (`docs/proposals/recipe_wording.md`):
+1. Which units respond to the stimulus beyond the movement that follows it?
+2. Does activity carry choice information beyond the stimulus?
+3. How do brain regions differ in their responses to the stimulus?
+
+**A recipe is one YAML file** whose text fields are plain prose: a part is text, or
+text with points, and a point may have a bold lead.
+- **What it holds:** its question, its needs, and its steps.
+- **Each step has the six approved parts:** question, why, analysis,
+  null_and_correction, needs, read. The YAML key is `null_and_correction`, because YAML
+  reads a bare `null` key as nothing.
+- **Malformed files are refused:** unknown keys, missing parts, unknown placeholders or
+  analyses, repeated step ids, an analysis whose needs the recipe doesn't declare.
+
+**A recipe declares what it needs, and is offered only where the session has it:**
+- **The needs:**
+  - `stimulus`: `movement` (the task's movement section names it) or an event name;
+  - `movement`: movement events;
+  - `comparison`: a two-level comparison whose null permutes within strata;
+  - `regions`: Allen atlas regions.
+  - **A step may need a decoding target** on the comparison's condition.
+- **Where each is offered:**
+  - **Recipe 1:** IBL and MC_Maze. Not Steinmetz, which has no movement onset, nor
+    Allen.
+  - **Recipe 2:** IBL and Steinmetz. On an IBL Phy folder, step 3 is greyed out alone,
+    with decoding's own reason.
+  - **Recipe 3:** IBL, Steinmetz and Allen. Not MC_Maze, which has no atlas regions.
+- **When not offered:** the recipe is still listed and readable, greyed out, with the
+  reason in the task's words.
+
+**Words come from the task, numbers from the configs:**
+- **Task words:** placeholders take event and condition labels, strata names and level
+  names (MC_Maze reads "go cue", "movement onset", "maze").
+- **Numbers:** windows, permutation counts, seeds, α, splits, minimum trials and
+  minimum sessions are read from configs/analysis.yaml, movement.yaml,
+  selectivity.yaml, studio_decoding.yaml, nulls.yaml and summary.yaml. None is typed
+  into a recipe.
+- **A guard:** the wording says "the 0.3 s after" and "the 0.2 s before". If a config
+  window stops touching the event, the recipes refuse rather than mislead.
+
+**A step runs the manual view's own analysis (`Studio.recipe_run`):**
+- **The same method, the same parameters:** test_json, locking_json or
+  selectivity_json, with the page's units and trial filter plus the step's event,
+  split or movement-free trials.
+- **The page follows:** it takes the same settings, so the panels on the left show the
+  same cached result, and the panel's sentence is the rail's.
+- **The other kinds:**
+  - **Decoding:** the step starts the Decoding panel's own run.
+  - **The split view:** sets the toolbar.
+  - **Region-summary steps:** give the command line for sessions like this one, and
+    count the finished runs with the same label and task.
+- **Summary listings now carry their task** (`studio/summaries.py`; older runs are
+  IBL's), so IBL's runs aren't counted for Steinmetz.
+- **Checked against the manual views:** identical numbers and stored tables, on
+  MC_Maze (recipe 1, all three steps) and Steinmetz Richards 2017-10-31 (recipe 2,
+  selectivity). The browser showed the same: 11 of 30 MC_Maze units responsive on 69
+  movement-free trials, in the panel and in the rail.
+
+**Differences from the approved wording:** four small ones, listed at the end of
+`docs/proposals/recipe_wording.md`.
+
+**Next, 9b:** the analysis log, designed here before it is built.
+
+### 2026-10-03 — Step 8c: region summaries for any task with regions (`analysis/summary.py`, `cli/summarise.py`)
+
+**What (the user's step 8, its last part):** S5's region summaries for any dataset with
+brain regions. The region test is unchanged: the session is the unit of inference
+(region labels permuted within each session, exact null), BH across regions, and at
+least 5 sessions for a verdict (configs/summary.yaml).
+
+**Labels follow the task:**
+- **A label names its task** (`LabelSpec.task`, IBL's by default). It is checked
+  against that task's events, its comparisons (selective) and its movement events
+  (locked). Steinmetz declares no movement events, so its "locked" is refused.
+- **Tightened for IBL:** "selective" now needs a condition with a comparison. Before,
+  any IBL condition was accepted, and then every session failed its selectivity test.
+- **Each session is labelled with its own unit QC rule** (an NWB layout's quality
+  column, or spike times), with the same test Studio runs. Angles take the circular
+  test. Checked against Studio's own results on Steinmetz Richards 2017-10-31
+  (responsive and selective for choice, engaged trials). IBL's own check is unchanged.
+- **No regions, no labels:** a session without brain regions is left out with its
+  source's reason. A layout that refuses regions (MC_Maze) is refused before any file
+  is read.
+
+**NWB files are named on the command line (mine, flagged):** `python -m
+unitwave.cli.summarise --nwb FILE … --layout L --name N`.
+- **Why:** a saved set holds IBL release sessions, chosen on the homepage from the
+  catalogue, and NWB files have no catalogue. The set format is unchanged.
+- **The run records:** each file's path and sha256, the layout and its label, the task,
+  the trial filter (default: the filters the task turns on), and the QC, layout and task
+  configs with their sha256.
+- **The homepage:** it lists the run like any other, and its caption says "NWB files"
+  with the layout.
+
+**The proof: six Steinmetz sessions (DANDI 000017), chosen by the user:**
+- **How they were chosen:** every file's electrode locations, peak channels and phy
+  annotations were streamed, with nothing stored. The six give CA1, DG, MOs, SUB and
+  VISp at least 5 good units in at least 5 sessions, for the smallest download (2.03
+  GB): Cori 2016-12-14, Forssmann 2017-11-01, Lederberg 2017-12-05 and 2017-12-07,
+  Richards 2017-10-29, Theiler 2017-10-11.
+- **Checked:** all 39 files' locations are Allen CCF acronyms. All six downloads match
+  DANDI's sha256.
+- **The run:** responsive to stimulus onset (0–0.3 s against −0.2–0 s), engaged trials;
+  5,456 QC-passing units; 6 of 6 sessions used.
+
+| Region | Sessions | Units | Labelled | Expected | q | Verdict |
+|---|---|---|---|---|---|---|
+| SUB | 5 | 416 | 214 | 130.1 | 8.4e-21 | more |
+| VISp | 5 | 289 | 135 | 107.3 | 6.2e-4 | more |
+| MOs | 6 | 371 | 142 | 116.7 | 3.6e-3 | more |
+| DG | 5 | 335 | 76 | 88.4 | 0.13 | no claim |
+| CA1 | 5 | 263 | 67 | 76.0 | 0.21 | no claim |
+
+18 regions are refused (units in fewer than 5 sessions). Run
+`20261003T081859429482Z_summary_responsive_steinmetz-six`.
+- **SUB, investigated before reporting:**
+  - **Per session:** it is above its session's other units in 4 of 5 sessions.
+  - **Not a firing-rate artefact:** within firing-rate quartiles, SUB units are still
+    labelled far more often. On Theiler 2017-10-11, its units' median rate equals the
+    rest's (1.6 vs 1.7 Hz), yet 43–90% are labelled against 11–43%.
+  - **No interpretation:** what the label means biologically is left to prose by a
+    human (§5).
+
+**Fixed on the way:** the spread figure's refused list ran into its axis label
+(`viz/summary_plots.py`). The list is now wrapped by hand, and the figure grows by its
+lines (a test checks the two don't meet).
+
+**Not changed:** the region test, its config and its figures' content; IBL's labels;
+the set format.
+
+### 2026-10-03 — Step 8b: population trajectories for any task, and colours by condition type (`studio/server.py`, `viz/studio_plots.ramp_colours`)
+
+**What (the user's step 8, its second part):** trajectories for any task. The analysis
+was already task-neutral (`analysis/trajectories.py`):
+- **Fit and show:** PCA on condition-averaged rates, fit on each condition's 1st, 3rd,
+  … trials and projected on the others.
+- **Learned from the fit half only:** soft normalisation and means.
+- **Names:** components are named pc_1, pc_2, … only (R5).
+- **Reported:** the variance of the shown trials on each component.
+
+Since step 3 it takes the task's conditions, so 8b checks it on other datasets and
+fixes what didn't carry over: colour.
+
+**Colours by condition type (another task than IBL):**
+- **Ordered conditions:** an ordinal or continuous condition (temporal frequency,
+  contrast, a median split) takes the theme's one-hue ramp, faint to strong against
+  the page, never its palest step. Before, its levels took unrelated categorical hues.
+- **Categories and angles:** a categorical condition, or an angle tested as a circle
+  (direction, orientation), takes the categorical slots in order.
+- **More categories than slots** (8; MC_Maze has 9 mazes):
+  - **Not drawn by colour:** the split PSTH and trajectories refuse, saying so and
+    pointing to the tuning curve and the trial filters. Before, colours repeated in
+    the legend.
+  - **The tuning curve still draws,** in one colour, because its axis names each
+    level.
+  - **A filter to narrow them:** MC_Maze's task gains a Mazes trial filter, to keep 8
+    or fewer.
+- **IBL's colours are unchanged:** sides, the contrast ramp, choice and outcome.
+
+**Checked:**
+- **MC_Maze:** split by targets shown, aligned on movement onset; trajectories are
+  cross-validated with pc names only.
+- **Allen drifting gratings:**
+  - split by temporal frequency: on the ramp, fit on 299 presentations and shown on
+    299, with pc_1 27%, pc_2 17% and pc_3 5% of the shown trials' variance;
+  - split by direction: on the categorical slots.
+- **IBL:** its trajectory tests are unchanged.
+- **The browser:** Allen's temporal-frequency split, and MC_Maze's maze refusal with
+  its filter.
+
+**Not changed:** the trajectory analysis and its config; IBL's colours and numbers.
+
+### 2026-10-03 — Step 8a: decoding for any task (`targets/task.py`, `qc/rules.py`, a task's `decoding` section)
+
+**What (the user's step 8, its first part):** decoding a task's own trial targets on
+any session, with the six-row contract, splits from the registry and balanced
+accuracy and AUROC. IBL's targets and pipeline are unchanged.
+
+**Signed off by the user (2026-10-03, in chat):**
+- **`preprocess/` changes (§10):** `preprocess_session` now applies the session's own
+  unit QC rule: IBL's label, the Phy group, spike times or an NWB layout's quality
+  (`qc/rules.apply_qc`).
+  - IBL's rule takes exactly the old path (`apply_unit_qc`). Its preprocessing
+    fingerprint is unchanged (317be1f8…6c46, pinned by a test), and
+    `PREPROC_VERSION` isn't bumped.
+  - Other rules get their own fingerprint, since `PreprocConfig.fingerprint` hashes
+    the rule.
+- **The shuffle null's minimum shift is declared per task** (`decoding.min_shift_trials`).
+  IBL keeps 100 (configs/nulls.yaml, longer than any block). Steinmetz declares 20:
+  a trial is repeated after an error, up to 9 presentations in a row on Richards
+  2017-10-31. A task without a decoding section can't be decoded.
+- **The no-spikes baseline for a task's target:**
+  - the task's `trialstruct` variables on the current trial;
+  - every trialstruct variable on the previous 10 trials (configs/nulls.yaml's
+    `history_trials`; 0 before the first trial and for missing values).
+  - **Refinement (mine, flagged):** the current trial also leaves out the target's
+    own columns and the variables the target declares as only known after its window
+    (`after`). Otherwise Steinmetz's baseline would see the current feedback, which,
+    with the contrasts, gives the choice away. IBL's hand-written baseline already
+    leaves the current outcome out.
+- **The proof:** Steinmetz choice (and IBL, unchanged).
+
+**How a task declares a target** (`decoding.targets.<name>`):
+- **What:** the condition and its two levels (the second is label 1).
+- **Window:** an event, and start and stop in seconds.
+- **Trials:** the task's trial filters it uses (flags or exclusions).
+- **`after`:** the variables only known after the window.
+
+Trials are selected by the filters first, then the levels, then the event; each
+exclusion is counted by reason. Windows end at the last bin finishing by
+event + stop, as IBL's do.
+
+**Without changing `splits/`:**
+- **The split:** a session outside the BWM release is registered with a one-session
+  catalogue: its eid, with subject and lab "unknown". Within-session splits read
+  nothing else from a manifest, so the split code is unchanged.
+- **The guard** already takes what to compare a split against. A task target's
+  provider passes its catalogue and its preprocessing fingerprint
+  (`split_expectations`), and the contract's runner passes them on. IBL keeps the
+  release defaults.
+
+**Studio:**
+- A session outside the BWM release on a non-IBL task offers its task's targets.
+- A target is offered only when the session's trials have its columns; otherwise the
+  page names the missing ones.
+- IBL-task sessions behave as before: BWM sessions decode IBL's targets, and a Phy
+  folder is refused with the old message.
+
+**The proof (Steinmetz Richards 2017-10-31, opened from the homepage, decoded from the
+page):**
+- **Target:** choice, right vs left, in the 100 ms before the response.
+- **Trials:** 12 disengaged and 74 no-go trials excluded.
+- **Split:** within-session, 208 train and 51 test trials with a 2 s gap; 24 usable
+  test trials. 455 units.
+
+| Row | AUROC | Balanced accuracy |
+|---|---|---|
+| null_shuffle | 0.478 | 0.500 |
+| null_trialstruct | 0.944 | 0.916 |
+| baseline_ridge (= model) | 1.000 | 0.955 |
+| model | 1.000 | 0.955 |
+| ceiling_within (= model) | 1.000 | 0.955 |
+
+- **Gate (model_with_task vs null_trialstruct): NOT PASSED.** ΔAUROC +0.056,
+  p = 0.21, q = 0.28 (paired bootstrap over the 24 test trials, 2,000 resamples).
+- **The model beats null_shuffle:** p = 0.0099, its rank among 100 shifted refits.
+- **Why not passed:** the contrasts predict this mouse's choices nearly perfectly,
+  and 24 test trials can't show a 0.056 gain.
+- **AUROC 1.000 isn't a leak:**
+  - the split is temporal with a gap, and normalisation is fit on training trials
+    only;
+  - the window ends when the wheel reaches threshold, so the wheel is already
+    turning, and units see the movement being made.
+
+  This decodes the movement in progress, not a decision.
+
+**IBL unchanged:** the decoding, contract, single-session, CLI, data-provider, split,
+binning and golden tests all pass, including the real d23a44ef decoding run.
+
+**Not done yet (step 8 continues):** trajectories and region summaries for any task.
+
+### 2026-10-02 — Step 7: a dataset without the Allen mouse atlas, MC_Maze_Small (`configs/nwb/nlb_mc_maze.yaml`, `configs/tasks/nlb_mc_maze.yaml`)
+
+**The choice (the user's, of four proposed):** Neural Latents Benchmark MC_Maze_Small,
+DANDI 000140 (version 0.220113.0408).
+- **What it is:** macaque (Jenkins), two 96-channel Utah arrays labelled M1 and PMd,
+  delayed center-out reaching through mazes.
+- **Downloaded:** only `sub-Jenkins_ses-small_desc-train_behavior+ecephys.nwb`,
+  29,207,528 bytes. Its SHA-256 matches DANDI's. It is in `data_root/dandi/000140/`.
+  The test file (held-out trials, no behaviour) isn't needed.
+- **Not chosen:** MC_Maze (DANDI 000128, 691 MB), DMFC_RSG (000130, 14 MB) and
+  Area2_Bump (000127, 1.8 GB).
+- **The rat set** 000173 wasn't offered: its catalogue lists units only, with no
+  sign of a trials table.
+
+**What the file holds, checked by hand:**
+- **Units:** 142, with spike times and NLB's `heldout` flag; no quality column. A
+  short session: 294 s and 100 trials (75 train, 25 val).
+- **The units' electrode links can't be trusted:** every unit points into the PMd
+  array's rows (0–94, 78 distinct), though both arrays recorded (PMd rows 0–95, M1
+  rows 96–191). They look like per-array channel numbers used as session-wide rows,
+  the defect found in DANDI 000017. Unlike Steinmetz, no other column says which
+  array a unit is on.
+  - So areas aren't read: the layout refuses them, with that reason.
+  - All units form one group (layout `probe: single`).
+  - Studio's generic reading refuses them too, since its own-probe check fails.
+- **Positions and depth:** the electrodes have no coordinates (x, y, z are empty),
+  and Utah arrays have no depth along a shank. Both are refused, with their reasons
+  (new layout `depth: {refused: …}`).
+- **Trials:** target-on, go-cue and movement-onset times; maze, target count (1 or
+  3) and barrier count (0 or 9). Target and barrier positions are per-trial arrays,
+  which aren't read; the report lists them.
+- **Behaviour:** hand velocity has two channels (mm/s, scaled to m/s by the file's
+  conversion). Its magnitude is read as hand speed (new layout behaviour
+  `{path, combine: norm}`). Cursor, eye and hand position are listed as not read.
+
+**The MC_Maze task definition:**
+- **Events:** target onset, go cue and movement onset, also drawn in the trial view.
+- **Conditions:** maze, targets shown, barriers, and median splits of the delay and
+  reaction time.
+- **Comparisons:** one vs three targets, and barriers vs none. Both are plain
+  permutations, because each maze fixes its targets and barriers, so neither can be
+  permuted within a maze. A difference may be the reach's, not the count's; the
+  task file says so.
+- **Movement:** go cue to movement onset, reaction times permuted within maze.
+  Unlike Steinmetz, this task has real movement onsets, so movement controls work.
+
+**The proof (opened from the homepage in 0.5 s):**
+- **Works:**
+  - the raster and PSTH, condition splits and tuning, the population heatmap,
+    trajectories and pairs;
+  - the single-trial view, with hand speed rising after movement onset;
+  - the quality panel and export;
+  - responsiveness at the go cue: 13 of 30 units (54,321 shifts);
+  - movement locking: 10 of 30 (reaction times permuted within maze, 10,000 draws);
+  - movement-free trials: 69 of 100;
+  - targets selectivity at the go cue: 1 of 30 (66 vs 34 trials).
+- **Refused, with the reason on the page:**
+  - the 3D view (no coordinates, and no mouse atlas);
+  - the region tree and levels, and the Region column (areas can't be told);
+  - the probe strip (no depth);
+  - the wheel (not mapped);
+  - decoding (BWM only).
+
+**Unit QC:** spike times only (no quality column). 30 of 142 units pass.
+- 112 fail IBL's sliding refractory test, and 14 fail on presence.
+- The session is 294 s long and the median unit fires at 2.2 Hz, too few spikes to
+  show low contamination confidently. The test fails such units by design. The
+  longer MC_Maze file would pass more.
+- "Include units failing QC" shows all 142.
+
+**Not changed:** the IBL, Phy, Steinmetz and Allen behaviour; `preprocess/`,
+`splits/` and cache keys. No dependency was added.
+
+### 2026-10-02 — Step 6: Allen Brain Observatory Visual Coding, passive tasks (`configs/nwb/allen_visual_coding.yaml`, `configs/tasks/allen_*.yaml`, circular selectivity)
+
+**The source:** DANDI 000021, Allen Institute Visual Coding Neuropixels (Brain
+Observatory 1.1 stimulus set), version 0.251116.2246.
+- **The dandiset:** 32 session files (80.5 GB) and 182 per-probe LFP files (397.1 GB).
+  Studio reads only session files.
+- **Downloaded (the user's OK):** `sub-707296975/sub-707296975_ses-721123822.nwb`,
+  1,736,516,600 bytes; its SHA-256 matches DANDI's. It is in
+  `data_root/dandi/000021/`.
+- **The download** was cut at the background task's 30-minute limit. It was resumed
+  with `curl -C -` in the user's Terminal panel, and then checked.
+
+**What the file holds, checked by hand:**
+- **Trials:** there is no trials table; each stimulus has a presentations table.
+  Each task reads its own (layout `trials.by_task`), and presentations play the role
+  of trials.
+- **Units:** 1,603, with Allen's `quality` (1,191 good, 412 noise) and AllenSDK's
+  metrics. There is no `electrode_group` column: a unit's probe is its peak
+  electrode's group (layout `probe: location_electrode`), giving 6 probes.
+- **Regions:** `peak_channel_id` is an electrode id, not a row (new location kind
+  `electrode_id`). There are 19 Allen regions.
+  - 13 units have an empty location. It is read as missing, never as a region.
+- **Depth:** `probe_vertical_position` counts µm up from the tip. On every probe,
+  deep structures lie at 20–2,500 µm, then cortex, then electrodes outside the
+  brain.
+- **Coordinates:** the electrodes' `z` repeats `y` on all 2,304 electrodes, so
+  left–right is missing. The 3D view is disabled, with that reason (146 of 1,795
+  named electrodes agree with their names at Beryl level).
+- **Numbers stored as text** (`spatial_frequency`, `phase`, the flash `color`) are
+  read as numbers. `'N/A'` and `'None'` are read as missing. Text that isn't numbers
+  (e.g. `size`) is kept as text. The capability report lists each conversion.
+- **Invalid times:** five per-probe intervals (probes E and F). Presentations
+  overlapping them are marked (`invalid_overlap`, layout
+  `trials.mark_invalid_times`).
+- **Behaviour:** running speed has timestamps and is read. There is no pupil; the
+  other running and optotagging series are listed as not read.
+
+**Decisions (the user's, 2026-10-02):**
+- **Unit QC:** `quality == good` plus AllenSDK's default thresholds, plus the
+  task-period rate of at least 0.1 Hz.
+  - The thresholds are `isi_violations` ≤ 0.5, `amplitude_cutoff` ≤ 0.1 and
+    `presence_ratio` ≥ 0.9. They are inclusive, as in AllenSDK's code (its docs say
+    < and >).
+  - The layout's quality block now takes several criteria. Steinmetz's one-column
+    form reads as before.
+  - 447 of 1,603 units pass during drifting gratings, 448 during static gratings and
+    430 during flashes.
+- **Invalid data:** presentations overlapping invalid times are excluded by default.
+  The filter can be lifted, and every caption counts what it excludes (static
+  gratings: 328 of 6,000). Trial filters can now be declared `default: true` for
+  non-IBL tasks.
+- **Three tasks:** drifting gratings, static gratings and flashes. Natural scenes
+  aren't defined yet.
+- **A circular selectivity test** (`tuning.circular_selectivity`):
+  - **Statistic:** the vector-sum index |Σ r e^(2πiθ/period)| / Σ r over
+    presentations, and the preferred angle.
+  - **Null:** the angles permuted within the declared strata (10,000 draws, seeded).
+  - **Test:** one-sided, with Benjamini–Hochberg across units.
+  - A unit silent in the window has no index and isn't selective.
+  - Task definitions declare it as `circular: {period}`. Comparisons may also give a
+    window in seconds (`window: [start, stop]`), and a tuning curve then uses that
+    window.
+  - A new derivation, `orientation_of_direction`, folds a direction onto 0–180°.
+
+**The tasks:**
+- **Drifting gratings** (2 s presentations):
+  - **Conditions:** direction, orientation (derived) and temporal frequency.
+  - **Tests:** direction (period 360) and orientation (period 180), each over 0–2 s,
+    with angles permuted within temporal frequency.
+- **Static gratings** (0.25 s):
+  - **Conditions:** orientation, spatial frequency and phase.
+  - **Test:** orientation (period 180) over 0–0.25 s, permuted within each spatial
+    frequency and phase.
+- **Flashes:** dark against light, AUROC over 0–0.25 s, against a plain permutation.
+- **Blanks:** presentations without a grating are excluded and counted (30 for
+  drifting gratings, 196 for static gratings).
+
+**The proof (opened from the homepage; each task takes about 15 s to open):**
+- **Drifting gratings:**
+  - responsiveness: 229 of 447 units;
+  - direction-selective: 109 of 447;
+  - orientation-selective: 244 of 447 (598 presentations).
+- **Static gratings:**
+  - responsiveness: 15 of 448 units;
+  - orientation-selective: 239 of 448 (5,492 presentations).
+- **Flashes:**
+  - responsiveness: 0 of 430 units;
+  - dark/light-selective: 171 of 430 (63 higher for light, 108 for dark).
+- **Works:** split PSTHs and tuning curves over 6–8 angles, the population heatmap,
+  trajectories, pairs, the quality panel, the region tree and levels, the probe
+  strip, and the single-trial view (each presentation's parameters).
+- **Refused, with the reason on the page:** movement controls (no movement events),
+  the wheel (not mapped), decoding (BWM only) and the 3D view (`z` repeats `y`).
+
+**Found, and not fixed here:** the responsiveness counts for these tasks aren't
+findings (`docs/NEGATIVE_RESULTS.md`, 2026-10-02). The shift null has almost no
+power when presentations are periodic (flashes every 2.002 s) or back to back
+(static gratings). The fix changes the signed-off responsiveness test, so it is the
+user's call.
+
+**Not changed:** the IBL, Phy and Steinmetz behaviour; the golden record is
+unchanged. `preprocess/`, `splits/` and cache keys are untouched. No dependency was
+added.
+
+### 2026-10-02 — Step 5: NWB intake, proven on Steinmetz et al. 2019 (`nwb/intake.py`, `configs/nwb/`, `configs/tasks/steinmetz.yaml`, `qc/nwb.py`)
+
+**What (the user's step 5):** Studio opens NWB files.
+- **What Studio reads** (`nwb/intake.py`):
+  - **units:** spike times, and the unit's probe from its electrode group;
+  - **trials:** start and stop become `intervals_0` and `intervals_1`; other columns
+    keep the file's names;
+  - **behaviour:** single-channel time series mapped by path;
+  - **regions:** location names, used as regions only when every one is an Allen CCF
+    acronym.
+- **Refused, saying why:** anything else, including:
+  - unit-electrode links that cross probes;
+  - a peak channel off its own probe;
+  - a series whose stored rate makes it longer than 24 h;
+  - a multi-channel series;
+  - positions.
+- **Layouts:** a dataset's specifics go in a layout file (`configs/nwb/*.yaml`): its
+  depth and quality columns, where regions come from, and its behaviour series.
+  Without one, a file is read generically: no quality (so unit QC uses spike times),
+  and no behaviour.
+- **The capability report** lists what was read, refused and not read, with reasons,
+  under "What this file supports" on the session page.
+- **Opening:** the homepage has "Open an NWB file" (files under `nwb_root`, layout,
+  task). The command line takes `--nwb FILE --layout NAME --task NAME`.
+- **The project file** records the file's sha256, and the layout with its label and
+  sha256. Reopening warns when either changed.
+
+**Downloaded (the user's OK, 2026-10-02):** one file from DANDI 000017, version
+0.240329.1926.
+- `sub-Richards/sub-Richards_ses-20171031T120000.nwb`, 204,150,135 bytes;
+- its SHA-256 matches DANDI's;
+- stored in `data_root/dandi/000017/`.
+
+**What the file holds, checked by hand:**
+- **Size:** 778 units (Probe1 352, Probe2 426), 4,703,292 spikes, and 260 trials
+  between 59 and 980 s of a 2,968 s recording.
+- **Unit-electrode links:** `units.electrodes` is wrong for every Probe2 unit; all
+  426 point into Probe1's electrodes. `peak_channel − 1`, counting across both probes
+  as the original data does, lands on each unit's own probe for all 778. Regions come
+  from it (the user's decision), giving 9 regions. The layout checks this on every
+  file, and refuses regions otherwise.
+- **Behaviour rates:** three series store the sampling period where the rate belongs:
+  - `wheel_position`: 0.0004 for 2,500 Hz;
+  - `lickPiezo`: 0.002 for 500 Hz;
+  - `face_motion_energy`: 0.0252 for 39.6 Hz.
+
+  Read literally, the wheel spans 18 billion s. They are refused, not corrected (the
+  user's decision). The pupil area, which has timestamps, is read.
+- **Quality:** `phy_annotations` (1 MUA, 2 good, 3 unsorted). The file says units at
+  2 or more "should be included". The NWB rule (`configs/qc_nwb.yaml`, the user's
+  decision) is at least 2 and a task-period rate of at least 0.1 Hz: 455 of 778 units
+  pass, and 178 pass on spike times. The plan expected no quality labels for
+  Steinmetz.
+- **Coordinates:** the electrodes' CCF coordinates agree with the file's own region
+  names on 292 of 748 electrodes at Beryl level (best of every axis order), and on
+  105 exactly. The 3D view is disabled, with that reason (the user's decision).
+  Region names still give the region tree and the Allen, Beryl and Cosmos levels.
+- **Depth:** `cluster_depths` is µm from the tip (the file's description), Studio's
+  convention.
+- **Left unresolved:** the electrodes' `site_position` disagrees with
+  `cluster_depths` under either electrode rule (median 507 µm on Probe1, 1,016 µm on
+  Probe2), so site positions aren't used.
+- **Spike amplitudes** are stored (`spike_amps`) but not read. Step 4's wording
+  "aren't stored" was changed to "Studio doesn't read".
+
+**The Steinmetz task definition** (`configs/tasks/steinmetz.yaml`):
+- **Events:** stimulus onset, go cue, response, and feedback split by outcome.
+- **Conditions:** left contrast, right contrast, contrast difference, choice and
+  outcome.
+  - The choice levels follow the file's description: −1 right, +1 left, 0 no-go. The
+    data agree on 142 of 142 correct trials with unequal contrasts.
+- **Comparisons:** choice and outcome, each permuted within the trial's pair of left
+  and right contrasts.
+- **No movement events:** the trials hold the response time, when the wheel reached
+  threshold, not movement onset. Movement controls are unavailable rather than
+  mislabelled.
+- **Trial filters:** engaged trials (the file's `included`: engagement only, not the
+  paper's response-time criterion), exclude no-go, and outcomes.
+- **Two new derivations,** tested by hand: `difference` and `combination` (a number
+  per distinct pair of values, for strata).
+
+**The proof:** the Richards session, opened from the homepage.
+- **Works:**
+  - the units table, with both verdicts;
+  - the raster and PSTH, a choice split (3 levels), the tuning curve and the
+    population heatmap;
+  - trajectories: pc_1 31%, pc_2 8%, pc_3 6% of the held-out trials' variance;
+  - pairs (a cross-correlogram), the quality panel, the region tree and levels;
+  - the probe strip, the single-trial view, and the export (18 files);
+  - the tests: responsiveness finds 86 of 455 units, with 180,321 shifts each.
+    Choice selectivity finds 0 of 455, against choices permuted within contrast
+    pairs (10,000 draws), Benjamini–Hochberg across units.
+- **Refused, with the reason on the page:**
+  - the wheel (its rate);
+  - movement controls (no movement events);
+  - decoding (BWM sessions only);
+  - the 3D view (coordinates disagree with the names);
+  - IBL's label criteria (IBL only);
+  - waveforms (not read from NWB).
+
+**Not changed:** IBL's and Phy's QC rules, `preprocess/`, `splits/` and cache keys.
+NWB sessions aren't cached; they are read from the file on each open. No
+dependency was added (pynwb, h5py and remfile are in the stack).
+
+### 2026-10-02 — Step 4: unit QC from spike times (`qc/spike_times.py`, `configs/qc_spikes.yaml`)
+
+**What (the user's step 4):** a QC rule that needs only spike times and the task
+period, for sources without their own labels.
+- **Task-period firing rate:** at least 0.1 Hz, as `configs/qc.yaml` and
+  `configs/qc_phy.yaml`.
+- **Refractory violations:** IBL's sliding refractory-period test
+  (`qc/refractory.py`), at 10% contamination and 90% confidence, as
+  `configs/qc_phy.yaml`.
+- **Presence ratio:** at least 0.9. It is the share of whole 10 s bins across the
+  task period, from the first trial's start, holding a spike. The task's last part,
+  shorter than a bin, isn't binned. A task shorter than one bin leaves it undefined,
+  and the unit fails, saying so.
+- **Amplitude metrics are declared unavailable** (`UNAVAILABLE`): spike amplitudes
+  aren't stored for any source.
+
+**Signed off by the user (2026-10-02, in chat):**
+- **Presence:** task period, 10 s bins, at least 0.9.
+- **A Phy folder with no label files** (neither `cluster_group.tsv` nor
+  `cluster_KSLabel.tsv`) uses the spike-time rule. It used to fail every unit as
+  "group missing". Folders with label files keep the signed-off Phy rule unchanged.
+- **IBL sessions keep their label rule,** and the spike-time verdict is computed when
+  a session opens, shown beside it.
+
+**Where it shows:**
+- **The units table** has a Spike QC column beside QC. It is hidden when spike times
+  are the source's own rule.
+- **The counts line** names the rule: "390 of 398 units pass QC (IBL label; 267 pass
+  on spike times)".
+- **The quality panel** gives both verdicts with their reasons, and the presence
+  ratio over the task beside IBL's presence ratio over the recording. It also lists
+  the unavailable amplitude metrics.
+- **Project files** hash `configs/qc_spikes.yaml` as `spike_qc`. The project test's
+  list of configs gained that entry, which adds to the test and loosens nothing.
+- **Cost:** opening a session takes 2–4 s longer, mostly the refractory test:
+  - 2.9 s for dd4da095 (536 units), measured on an idle machine;
+  - 3.4 s for d23a44ef (398 units), measured while the test suite ran.
+
+**Agreement on the robustness-pass sessions** (`python -m unitwave.cli.qc_agreement`,
+run 20261002T071946571998Z_qc_agreement):
+
+| | units |
+|---|---|
+| All units (9 sessions) | 2,699 |
+| Pass both rules | 1,947 |
+| Pass IBL's rule only | 706 |
+| Pass spike-time QC only | 0 |
+| Fail both | 46 |
+
+- **Overall:** 74% agree. Per session it ranges from 56% (b182b754) to 89%
+  (872ce8ff); 3a3ea015's 2 units agree.
+- **Nothing passes on spike times only.** The release's good units all carry
+  label 1, so failing IBL's rule here means a region or rate exclusion, which spike
+  times also catch.
+- **Why the 706 units with a passing IBL label fail on spike times:**
+  - **Presence ratio, 560 units** (495 fail on presence alone; their median rate is
+    1.7 Hz). Only 23 fire too rarely to fill 10 s bins (under 0.23 Hz). The rest
+    really are silent for stretches of the task.
+  - **Refractory violations, 211 units.** This was known: our port of IBL's older
+    MIT test agreed with IBL's stored flag on 553 of 674 clusters (2026-09-30,
+    "Phy QC gains IBL's sliding refractory-period test"). IBL's label uses the
+    newer GPL implementation, which passes more units.
+- **The bin width drives presence.** Of the 2,653 units passing IBL's rule:
+
+  | Presence rule (≥ 0.9, over the task) | fail |
+  |---|---|
+  | 10 s bins (signed off) | 560 |
+  | 100 bins per task: Allen's definition, 23–42 s here | 320 |
+  | 60 s bins | 238 |
+
+  The signed-off rule pairs IBL's 10 s bin with Allen's 0.9 threshold. Allen's own
+  0.9 is over 100 bins per session, much wider than 10 s, so the pairing is
+  stricter than either source. It stays as signed off; the table is here for the
+  user to decide.
+
+**Not changed:** IBL's label rule (`configs/qc.yaml`), the Phy rule for folders with
+label files (`configs/qc_phy.yaml`), `preprocess/`, `splits/`, cache keys. No
+dependency was added.
+
+### 2026-10-01 — Step 3: user-defined tasks (`analysis/tasks.py`, `configs/tasks/`)
+
+**What (the user's step 3):** a task definition file says what a trials table
+means. IBL's task is now one built-in definition, `configs/tasks/ibl.yaml`, read
+exactly as the app always read IBL's trials. The schema (`analysis/tasks.py`):
+- `required_columns`: without these the table can't be read as this task at all;
+- `events`: a time column, optionally limited to trials where another column equals
+  a value (IBL's reward and error feedback);
+- `trial_view_events`: the time columns the single-trial view draws, in order;
+- `conditions`: a column (values that mean "missing" become NaN) or a named
+  derivation. Each has a type (categorical, ordinal or continuous), level names (a
+  map, a format, or from the derivation) and the reason trials are excluded;
+- `strata`: what a null permutes within (a condition or a derivation);
+- `comparisons`: the two-level selectivity tests offered, each with its null. The
+  null is a permutation within declared strata, a plain permutation
+  (`permute: all`), or pseudo-sessions from a known block generator (only
+  `ibl_blocks`; any other is refused). Each also has a window: response or
+  baseline;
+- `movement`: the stimulus and movement events, and the strata reaction times are
+  permuted within;
+- `behaviour`: the wheel and traces the task uses;
+- `trialstruct`: what the no-spikes decoding baseline may use. It is recorded now
+  and used at step 8;
+- `trial_filters`: flag, exclude-values or select filters, with their exclusion
+  reasons and level names.
+
+**Decisions inside the schema:**
+- **Derivations are code, not formulas.** They are named functions in
+  `DERIVATIONS`, each tested by hand: signed contrast, stimulus side, signed
+  contrast with zero split by side, absolute contrast, and the median split of a
+  difference. A definition declares structure only, so nothing a user writes is
+  evaluated.
+- **The null's key is `null_model`.** A bare `null:` key reads as YAML's null.
+- **Required vs optional columns.** Missing required columns refuse the definition
+  in plain language, naming the columns. Any other feature whose columns are
+  missing is only unavailable, and says which columns it lacks. This is how Phy
+  sessions with only a few IBL columns keep working unchanged.
+- **Malformed definitions are refused, saying where and why.** Examples: unknown or
+  missing keys; an unknown derivation, or one given the wrong number of columns; a
+  comparison of a missing condition, or with three levels; an unknown strata or
+  block generator; a bad window or filter kind.
+
+**No behaviour change for IBL (the comparison asked for):**
+- **The record.** It was made at 7490130, before any refactor, through Studio's own
+  methods on d23a44ef (`tests/golden/`): 207 arrays and 117 texts.
+  - **Arrays:** PSTH means, SEMs and raster trial lists for 4 QC units at each of 4
+    events; population rates; split PSTHs and tuning tables for each of 6
+    conditions; each condition's values; the trial-filter mask; responsiveness on
+    all trials and on movement-free trials; selectivity for each of 4 comparisons;
+    movement locking.
+  - **Texts:** every caption, level name, null name and summary, and the
+    single-trial JSON for trials 12 and 236.
+- **After:**
+  - All 207 arrays are bitwise equal.
+  - Every caption and label is identical.
+  - The page's JSON gained only these named fields: a trial filter's `kind`, and
+    the trial header's `task`, `conditions` and `flags`. The test allows those and
+    nothing else.
+- **Trial-filter keys,** which caches and saved sets use, are byte-identical,
+  checked against the old code.
+- **Every existing test passes unchanged.**
+
+**Choosing a definition:**
+- **Phy folders:**
+  - **How:** a Task chooser on the homepage (built-ins, or a YAML file's path), or
+    `--task` on the command line.
+  - **The events CSV** may use the definition's columns besides IBL's. Its time
+    columns are checked against the recording's span.
+  - **A table without the required columns is refused,** e.g. "The trials table
+    has no tone_times column, which the task definition 'Tone–lick task'
+    ('tone_lick') needs. Choose another task definition, or add the column to the
+    events file."
+- **IBL sessions** use IBL's definition.
+- **NWB:** Studio has no NWB intake yet. It arrives with step 5 and chooses a
+  definition the same way (`Source.task`).
+
+**Names everywhere:**
+- The page uses the task's names in captions, the trial filters, the single-trial
+  header, the movement notes and selectivity summaries.
+- Exports use them too.
+- The project file records the task with the source: `task`, `task_label`, and
+  `task_sha256` of the definition. Reopening warns if the definition changed. Files
+  saved before this step have no task and open with IBL's definition, which is what
+  they were computed with.
+
+**Proven on a non-IBL task:** `tests/test_task_custom.py`, a hand-built tone/lick
+task with its own YAML. It runs from a Phy folder and events CSV through Studio:
+- the session description, split PSTHs and tuning curves;
+- selectivity under a stratified null (pitch within loudness) and a plain
+  permutation;
+- movement locking to the first lick, and its trial filters;
+- the single-trial view, the export and the project file;
+- the refusal of a missing required column, and of columns no definition reads.
+
+**Differences from the plan, and choices made along the way:**
+- **Colours.** IBL's conditions keep their colours: diverging sides and the
+  contrast ramp. Another task's levels take the categorical slots in order. An
+  ordinal ramp for other tasks waits until one needs it.
+- **Single-trial header.** It now lists the task's conditions by the task's names.
+  - An excluded trial says why: "excluded: no-go trials (choice 0)" where the page
+    said "no-go (0)".
+  - The exact reaction time is labelled "first movement − stimulus onset".
+  - IBL's old header fields stay in the JSON.
+- **Small label changes on the IBL page.** Filter labels come from the definition:
+  "BWM trial inclusion" (was "… only"), and blocks read "p(left) 0.2" (was "0.2").
+  The homepage's BWM trial filters are unchanged.
+- **Still IBL-only until step 8:** decoding and region summaries. Trajectories
+  already split by the task's conditions.
+- **Phy events columns must be numeric.** A condition held as text would need a
+  mapping to numbers, which waits until a dataset needs it.
+
+**Added after review: "Studio was updated: restart it"** (`studio/freshness.py`).
+- **Why:** on 2026-10-01 a Studio left running since the morning served the new
+  page scripts with its old server code. The session page failed with "Cannot read
+  properties of undefined" and showed no data.
+- **How:** the server records a fingerprint of its code files when it starts (the
+  path, size and modification time of every `.py`, `.js`, `.html` and `.css` file
+  in the package). Once they change, the homepage and the session page are
+  replaced by a plain page asking for a restart.
+  - The page says that saved projects are kept, and that an open session's view
+    should be saved first.
+  - Pages already open keep working until reloaded, since their scripts match the
+    running code.
+  - Changing the files back doesn't clear it.
+- **Tested** in `tests/test_studio_freshness.py`.
+
+**Not changed:** `preprocess/`, `splits/`, QC defaults, cache keys and the data
+folder. No dependency was added (PyYAML is in the stack).
+
+### 2026-10-01 — Next: other datasets and tasks
+
+**The aim (the user's plan, 2026-10-01):** UnitWave on any task, proven dataset by
+dataset rather than through an abstract universal format.
+
+**The order** (`docs/proposals/studio_next_steps.md`, "Current sequence … other
+datasets and tasks"):
+0. this plan (docs only);
+1. a robustness pass on varied IBL sessions: done, as S1;
+2. the prior-art audit: done, as S2. Pending: a column in §F's matrix, "works with
+   tasks and datasets beyond one lab";
+3. user-defined tasks. Task definition files go in `configs/tasks/`, and IBL is one
+   built-in definition, with no behaviour change;
+4. QC from spike times, for any source. IBL's signed-off default is not changed;
+5. general NWB intake, proven on Steinmetz et al. 2019 (DANDI 000017);
+6. the Allen Brain Observatory Visual Coding (Neuropixels), a passive task;
+7. a dataset without the Allen mouse atlas;
+8. decoding, trajectories and region summaries, for any task;
+9. guided workflow recipes, each declaring the task features it needs.
+
+**Plan only:** Phy clock sync and channel locations, the installer, unit browsing
+extras, and an AI layer over recipes (CLAUDE.md §6).
+
+**Work already built (the user's decision, 2026-10-01):**
+- **Kept:** S3 (decoding), S4 (trajectories) and S5 (region summaries) were built
+  against IBL's targets and conditions. They stay on `studio-prototype`, and step
+  8 rewrites them against task definitions.
+- **Replaced:** S6 (unit browsing) hadn't started; its extras move to plan only.
+  S7 (user-defined tasks) becomes step 3, and S8 (recipes) step 9.
+
+**Rules added for these steps** (the earlier ones stand):
+- ask before changing `preprocess/`, `splits/` or a signed-off QC default (R6);
+- test fixtures stay in tests, and nothing synthetic is shown as real;
+- before downloading any dataset, list the files and sizes and wait for the user's
+  OK.
+
+**Docs only.**
+
+### 2026-10-01 — S5 region summaries across a session set (`analysis/summary.py`, `cli/summarise.py`, `configs/summary.yaml`, `viz/summary_plots.py`)
+
+**What (the user's step S5, plan step 12):** per region, at the Beryl level, across
+the sessions of a saved set: how many units are responsive, selective or
+movement-locked, against the session's other units.
+- **Command line:** `python -m unitwave.cli.summarise SET --label …` writes
+  `runs/<run_id>/`:
+  - the manifest (git SHA, config hashes, the set with its hash and trial filter,
+    the sessions used and those left out with why);
+  - the unit, region and per-session tables;
+  - the flatmap and spread figures.
+- **Homepage:** a Region summaries card shows finished runs: the caption, the
+  regions with a claim, and the flatmap and per-session spread in the page's
+  theme. It also gives the command for a chosen set.
+
+**The region null, and why** (the plan offered this or a mixed model; this is the
+choice):
+- **The null:** region labels permuted across a session's units, within each
+  session. Sessions are the strata.
+- **The statistic:** the region's labelled units summed over sessions. Under the
+  null each session's count is hypergeometric (its units, its labelled units, its
+  units in the region), and the sum's distribution is their convolution. It is
+  exact, with no seed. This is the exact stratified (Cochran–Mantel–Haenszel-type)
+  conditional test.
+- **p:** two-sided, twice the smaller tail. The direction says more or fewer than
+  expected.
+- **Correction:** BH across the regions with a verdict.
+- **Why not pooled:** the 1,000-simulation scenario below adds sessions where many
+  labelled units also contribute many of a region's units.
+  - **Pooled across sessions** (Fisher), the region is called enriched 100% of the
+    time.
+  - **Stratified**, P(p < 0.05) = 0.032 and P(p < 0.01) = 0.003: conservative, from
+    the discreteness and the doubling.
+- **A mixed model wasn't chosen:** it needs a fitting library and estimation
+  choices. The stratified test is exact and needs nothing new.
+
+**Signed off by the user (2026-10-01, in chat):**
+- **Minimum:** 5 sessions for a region to get a verdict (`configs/summary.yaml`).
+  Below it, the region is refused and the reason shown. Its per-session rows are
+  still listed.
+- **Swanson outlines:** `swansonpaths.json` (330 KB) downloaded once from IBL's
+  public S3 bucket into iblatlas's atlas cache.
+
+**Choices made in building it, flagged for review:**
+- **Labels are Studio's:**
+  - the same tests, on the QC-passing units of every probe, with BH across that
+    session's units;
+  - on the set's own trial filter;
+  - a test checks the labels equal Studio's on d23a44ef for all three kinds.
+- **Unassigned units:** a unit with no region at the level (`root`, `void`, none)
+  counts among its session's units, but is never a region.
+- **Left out, counted:** a session that can't be labelled (e.g. no wheel, for
+  locking) is left out, with the reason in the manifest and the caption.
+- **Effect size:** the flatmap colour is the labelled fraction minus the fraction
+  expected from the region's own sessions. The spread shows each session's fraction
+  minus that session's other units, and its median. Pooled numbers are never shown
+  alone (§5).
+- **The app computes nothing:** the CLI writes the tables, and the server draws
+  the figures from them in the page's theme. Run names are checked against the
+  run-name pattern, so a request can't reach outside `runs/`.
+
+**Real data:** responsive to stimulus onset, BWM inclusion, no-go trials excluded.
+- **The 9 S1 sessions** (2,653 units, 50 regions): they were picked to differ, so
+  no region has 5 sessions, and all 50 are refused, with the reason. Each session
+  took 0–15 s.
+- **8 sessions with the most CA1 units** (1,568 units, 32 regions):
+  - **CA1** (8 sessions, 514 units) is the only region with a verdict: 391
+    responsive against 380.7 expected from its sessions, p = 0.20, no claim. About
+    74% of units are responsive across these sessions.
+  - **The rest:** 31 regions refused. Each session took 4–20 s, loading included.
+- **A bug found:** with no region tested, iblatlas filled the map in its own atlas
+  colours, which read as results. It now draws the "no units" and "too few
+  sessions" fills only, with a test.
+
+**No new dependency:** iblatlas was already one (2026-09-28).
+
+### 2026-10-01 — Brand artwork in Studio: the user's SVG set (`unitwave/studio/static/brand/`, `docs/brand/`)
+
+**What (the user's request):** the user's "UnitWave Studio App Brand Assets", a
+vector set made for the app (app icon with and without glow, light and dark navbar
+lockups, light and dark splash screens, the ribbon mark). It replaced a first pass
+with raster versions of the same artwork, at the user's request. It is used as
+follows:
+- **Tab and top bar:** the flat app icon is the browser-tab icon on both pages,
+  with PNG fallbacks, and a 24 px mark before the "UnitWave Studio" wordmark in the
+  top bar. The wordmark stays text.
+- **Homepage header:** the summary card opens with the navbar lockup in the
+  theme's version, 88 px high.
+- **Opening a session:** the theme's splash screen shows while a session loads
+  (seconds), with the progress panel below it.
+- **README:** opens with the navbar lockup, light or dark to match GitHub's theme.
+
+**Choices:**
+- **The masters are used as drawn**, kept in `docs/brand/source/` with their README.
+  `docs/brand/make_assets.py` derives what the app serves:
+  - **Navbar lockups:** only their viewBox is cropped. The artwork fills x 43–745,
+    y 27–169 of a 1200 × 240 canvas, measured in the browser, with room left for
+    the glow.
+  - **Icon PNGs:** icon-32 and icon-180 are rendered from the masters by macOS
+    QuickLook, with corners cut to the icon's own rounded square (rx 218 of 1024).
+    Safari's home-screen icon must be PNG.
+- **Flat icon for small sizes:** the flat icon is used at 32 px and below, where
+  the glow blurs; the detailed one is used for the 180 px PNG.
+- **Fonts:** the SVGs ask for Inter, then Arial. An `<img>` can't load web fonts,
+  so the lettering uses the first one installed, Arial on this machine.
+- **Theme switching:** light and dark versions follow the page's theme, including
+  the manual Light and Dark buttons, through two tokens set alongside the colour
+  tokens (`--only-light`, `--only-dark`).
+- **Loading screen layout:** a column, so a short window shrinks the splash rather
+  than putting the panel over its tagline.
+- **Figures and exports stay unbranded:** they are scientific output.
+- **Safety:** a test checks that every served SVG has no script, foreignObject or
+  outside link. The masters had none.
+
+**Bugs found on the way:**
+- `.card img { display: block }` outranked the theme rule, so both versions
+  showed at once. The rule now uses a doubled class.
+- The first splash layout could cover the tagline in short windows.
+
+**No new dependency:** the build script uses Pillow and NumPy (installed with
+matplotlib) and QuickLook (macOS). The app imports none of them.
+
+### 2026-10-01 — S4 trajectories finished: variance on the axes, both trial counts (`viz/studio_plots.py`, `studio/server.py`)
+
+**What (the user's step S4):** the two differences between plan step 9 and what was
+built.
+- **Axes:** each component's share of the shown (held-out) trials' variance is on
+  its axis, as `pc_1 (58%)`. The component rows show it under the name. Names stay
+  `pc_k` (R5), and the legend says what the percentage is.
+- **Short labels:** "pc_1 (58% of shown variance)" collided with the tick labels
+  and the legend in 3-D.
+- **Caption:** gives both trial counts, fit and shown, summed over conditions: on
+  d23a44ef split by choice, fit on 146 trials and shown on 144. The legend keeps
+  the per-condition counts.
+
+**A bug found and fixed:** the trajectory legend's title was drawn in matplotlib's
+default black. `labelcolor` themes only the entries, so on the dark page the title
+was unreadable. It now uses the theme's ink, with a test.
+
+**No new dependency; descriptive as before** (no test, no label).
+
+### 2026-10-01 — S3 decoding in Studio (`analysis/decoding.py`, `evaluation/single_session.py`, `configs/studio_decoding.yaml`, stimulus-side target)
+
+**What (the user's step S3, plan step 10):**
+- **Where it lives:** a Decoding section in the rail and a Decoding tab in the
+  Population card.
+- **Targets:** choice, stimulus side, block or movement state, decoded from the
+  shown units of one IBL session.
+- **A background job:** with progress; other views keep working, and a reload picks
+  the run back up.
+- **Logged:** each run goes to `runs/<run_id>/` with the §7 manifest (git SHA, seed,
+  config hashes, preprocessing and target fingerprints, split hash, the units
+  used), the split, the contract's files and `single_session.json`.
+
+**Decisions signed off by the user (2026-10-01, in chat):**
+1. **Single-session verdicts** (`evaluation/single_session.py`). The contract's
+   verdict is a Wilcoxon test across at least 5 sessions, so one session never
+   gets one. Instead:
+   - **vs null_shuffle and null_pseudosession:** the model's AUROC ranked among the
+     null refits, p = (1 + #draws ≥ model) / (1 + #draws). Studio asks for 100
+     shifts (`configs/studio_decoding.yaml`); the cross-session runs keep 20.
+   - **vs null_trialstruct and baseline_ridge:** a paired bootstrap over whole test
+     trials of the AUROC difference, 2,000 resamples, each fold resampled within
+     itself, scored per fold and averaged, as the contract does.
+   - **Correction:** Benjamini–Hochberg across the session's comparisons (4; 5 for
+     block). A comparison beats its row when q < 0.05 and the difference is
+     positive.
+   - **Calibration:** two equally good synthetic predictors, 400 simulations per
+     setting, 30–150 trials of 1–20 bins each. P(p < 0.05) was 0.035–0.062.
+     P(p < 0.01) reached 0.020, slightly liberal far in the tail.
+2. **Stimulus side:** a new target, 0–100 ms after stimulus onset (the Brain Wide
+   Map window).
+   - **Labels:** 1 for left, 0 for right.
+   - **0% contrast:** those trials show nothing, so they are excluded and counted
+     (`TrialTarget.excluded`).
+   - **Versioning:** adding a window changes the targets fingerprint.
+     TARGETS_VERSION is unchanged, since no existing target's output changes.
+3. **IBL sessions only.** A Phy folder has no session manifest for the split
+   registry, and a single-session path would change `splits/` (§10). The page says
+   so.
+
+**Choices made in building it, flagged for review:**
+- **Trial-structure null for stimulus side:** the current trial's block prior plus
+  the previous 10 trials' side, choice and reward, never the current stimulus.
+  Within a biased block, 80% of stimuli are on the prior's side, so the prior
+  predicts the side well: AUROC 0.84 on b22f694e. Spikes must beat that.
+- **Rows shown as the same:** ceiling_within equals the model, because the split
+  is within-session. baseline_ridge equals the model, being the same logistic
+  decoder with no deep model run. That comparison says it can't show a difference.
+- **baseline_rrr is not run:** it is multi-session by design. The contract now
+  accepts it left out only with a stated reason, and the CLI is unchanged.
+- **Units:** the shown units that pass `configs/qc.yaml`, the page's own QC.
+  Shown units failing it are excluded and counted.
+- **"Responsive only" is refused:** responsiveness was tested on every trial,
+  including the decoder's test trials, so units chosen by it would let test data
+  pick the units. Region, probe and QC filters don't depend on the decoded trials.
+- **Trials:** each target's own definition (BWM inclusion, a label), not the
+  page's trial filters, and the page says so.
+- **Shifts:** a session may allow fewer than asked. Choice on d23a44ef allows 91,
+  since its 290 trials and the 100-trial minimum leave shifts of 100–190. The rank
+  test uses those, and the page says how many.
+- **One run at a time.** The result lives in the server until restart; the run
+  folder keeps everything.
+
+**Code shared with the CLI:**
+- **`cli/evaluate.py`:** gains `build_splits`, `evaluate_target` and `write_target`,
+  which Studio calls too. The CLI's behaviour is unchanged (its tests pass).
+- **The test that matters:** on d23a44ef, Studio's per-session table equals the
+  CLI's for the same session, units, split and seed.
+- **`evaluation/contract.py`:** keeps each real-label row's test predictions, calls
+  `progress(done, total)`, and takes `not_run`.
+- **`evaluation/data.py`:** takes `unit_ids` and has `sample_trials`.
+- **R2:** a hand-built random trial split is refused on Studio's path.
+
+**Real data:**
+- **d23a44ef, choice** (390 units, mostly hindbrain and cerebellum):
+  - AUROC: model 0.979, null_trialstruct 0.948, null_shuffle median 0.476.
+  - Verdicts: beats the shuffle (q = 0.044) but not the trial structure, so the
+    gate is not passed: not decoding beyond the task. This matches
+    `docs/NEGATIVE_RESULTS.md`.
+- **d23a44ef, movement state:** model AUROC 0.979 against null_trialstruct 0.695.
+  It beats every null (q ≤ 0.013) and passes the gate.
+- **d23a44ef, block:**
+  - AUROC: model 0.417 (3 leave-one-block-out folds), within the pseudo-session
+    null (median 0.512; rank p = 0.79). Not decoding.
+  - Shifts: only 25 exist for this session.
+- **d23a44ef, stimulus side:** model AUROC 0.525, about chance, plausible for these
+  regions.
+- **b22f694e, stimulus side from 96 visual-cortex units:**
+  - AUROC: model 0.61, shuffle median 0.49, null_trialstruct 0.84.
+  - Units: 4 shown units fail QC, excluded and counted.
+  - Verdicts: spikes add nothing beyond the block prior.
+- **Time, one session, defaults, Intel Core i7-9750H, 6 cores:**
+  - choice: 140 s;
+  - stimulus side: 102 s (45 s for 96 units);
+  - movement state: 59 min, part of it alongside a test run, so about 45 min
+    alone;
+  - block: 8 min.
+
+**No new dependency.**
+
+### 2026-10-01 — S2 prior-art audit: post-sorting analysis apps (`docs/PRIOR_ART.md` §F)
+
+**What (the user's step S2):**
+- **Scope:** 11 entries covering CellExplorer, NeuroExplorer, IBL's websites,
+  Neurosift, Phy, the SpikeInterface GUI, sortingview, Pynapple and pynaviz,
+  Elephant, brainrender and Urchin, NeuroPyGuiN and NeuroPyxels.
+- **Each entry:** what the tool does, formats, statistics, atlas and 3D,
+  reproducibility, licence and status.
+- **Then:** a comparison matrix and a novelty assessment for UnitWave Studio.
+
+**How:**
+- **Sources:** current repositories, docs and source files, and PyPI and GitHub
+  metadata, read on 2026-10-01. Claims read there are [V]; the rest are [A].
+- **Nothing was installed or run.**
+- **The existing text is unchanged:** it is a historical doc, so §F is appended,
+  with its own matrix. The matrix above it belongs to the parked decoding
+  project.
+
+**What it changes for us:**
+1. **The claim to make:** every label in Studio is a corrected test against a
+   stated null, with trial counts shown. None of the GUIs checked does that:
+   - CellExplorer corrects across lag bins, not pairs;
+   - NeuroExplorer's PSTH limits are per bin;
+   - NeuroPyxels and NeuroPyGuiN test at p < 0.01 per pair.
+   This is a tools contribution, not a discovery.
+2. **Not to claim:** rasters, PSTHs, tuning, correlograms, connection detection,
+   3D atlas views, or a browser UI. Each exists elsewhere.
+3. **Watch NeuroPyGuiN:** started 2026-02-26 and active. It covers raw data to
+   histology in one desktop app, and has no licence file yet. Re-check §F's
+   matrix before any write-up.
+4. **Urchin is archived:** Studio's 3D view uses three.js, so nothing depends on
+   it.
+5. **For step 8's open question (close pairs):** CellExplorer removes the CCG's
+   centre bin for same-shank pairs before building its predictor. A third
+   option, beside flagging (current) and excluding close pairs. Your call; not
+   changed here.
+
+**No code change, no dependency.**
+
+### 2026-10-01 — S1 robustness pass: eight sessions, three fixes (`analysis/correlograms.py`, `data/atlas_meshes.py`, `viz/studio_plots.py`, page scripts)
+
+**What was run (the user's step S1):**
+- **Sessions:** eight BWM sessions that differ from d23a44ef, each opened with the
+  homepage's open request.
+- **Every view:** a scratch script made the page's 47 requests per session and
+  timed each one:
+  - the unit table, and rasters and PSTHs at every event;
+  - split PSTHs and tuning for every condition;
+  - responsiveness, with and without the movement-free option, and selectivity
+    for every comparison;
+  - the wheel, and movement locking;
+  - the trial view, unit quality and one pair;
+  - connections on the largest region with 2–30 units;
+  - the 3D view and probe strip, and trajectories in 2-D and 3-D;
+  - project save and reopen, and export.
+- **In the browser:** three sessions were opened from the homepage (6a601cc5,
+  3a3ea015, and connections run from the page's button).
+
+| Session | Why it was chosen | Failed | Fix |
+|---|---|---|---|
+| 3a3ea015 | Smallest: 2 good units. One shank (`probe00a`) of a Neuropixels 2.0 probe | Heatmap unit axis read 0.00, 0.25 … 2.00 | Whole-unit ticks |
+| 0c828385 | One probe. No video (no pose or motion energy) | Nothing | — |
+| b182b754 | One probe, deep structures only (MB, HB). Missing events: stimulus 4, first movement 16, feedback 5 | Connections on MRN (28 units): 164 s | Fast connection test: 8.1 s |
+| 6a601cc5 | Two probes. Fast MRN units (up to 90 Hz). 188 trials without a stimulus time | Connections on MRN (27 units) never finished (over 30 min). One mesh download stalled and hid every region mesh. One cut short and left the page an empty response | Fast connection test: 47 s, 37 s in the page. Meshes drawn one by one, retried |
+| 7f5df7eb | One probe, cortex only (343 good units) | Nothing | — |
+| c16d3557 | One probe, deep only (HB, CB). 248 of 459 good units in no Beryl region | Nothing | — |
+| 872ce8ff | Two probes, mostly hippocampus. No video | Nothing | — |
+| dd4da095 | Largest: 536 good units, 2,725 in all. Two probes. No video | Nothing | — |
+
+**Fix 1, the connection test (test-first, from 6a601cc5):**
+- **The cause:** step 8 convolved one jittered spike at a time, so a test cost
+  (spikes) × (observed count). One directed test in 6a601cc5's MRN took 58–102 s
+  (probe00_98 → probe00_117: 515,252 and 536,596 spikes, 144,142 lags).
+- **The fix, part 1:** draws are convolved in pairs, level by level, with batched
+  FFTs. Mass at or above observed + 1 is folded into one bin after each level,
+  which is exact because counts are never negative. That pair now takes 1.1 s.
+- **The fix, part 2:** a region's tests run on threads. Each test is exact and
+  independent, and a test checks the table equals testing each direction in
+  turn. On 72 real pairs, threaded and serial results are bitwise identical.
+- **Precision, against the old computation on real pairs:**
+  - errors in p are at most 2.6e-12;
+  - p below `P_RESOLUTION` (1e-9) is now reported as 1e-9, which is
+    conservative and far below any BH threshold (0.05 / 870 ≈ 6e-5);
+  - both p come from the last two bins of the distribution, not sums over many
+    bins;
+  - negatives from rounding are not clipped: clipping biased sums upward, by up
+    to 5e-9.
+- **Determinism:** the expected count uses NumPy sums, not a BLAS product. BLAS
+  gave a last-digit difference between a thread and the main thread.
+- **A bug in the first version, caught by the suite:** a pair where no lag could
+  ever fall in the window crashed. It has its own test now.
+
+**Fix 2, region meshes (test-first, from 6a601cc5):**
+- **What happened:** the Allen server stalled on structure 679 (CS) until the
+  60 s timeout, and the page drew no region meshes at all. It also cut short
+  structure 771 (P) after 63,508 of 916,133 bytes. That error (`IncompleteRead`)
+  is not an `OSError`, so the server's refusal missed it and the page got an
+  empty response.
+- **The fix:**
+  - a failed download is tried once more;
+  - any download failure becomes a plain refusal that names the structure;
+  - the page draws each mesh on its own, names the regions not drawn and why,
+    and forgets the failure so the next redraw asks again;
+  - the homepage's brain outline retries the same way.
+- **Checked in the browser:** with a failed download simulated, the other regions
+  were drawn and the note named the missing one. After the network was restored,
+  only that mesh was fetched again.
+
+**Fix 3, heatmap ticks (test-first, from 3a3ea015):** the unit axis uses whole
+numbers.
+
+**Slower than 2 s on the largest session (dd4da095); not changed, for review:**
+
+| View | Time | Where the time goes |
+|---|---|---|
+| Movement locking | 22.2 s | The permutation loop (13 s) and spike-window counts (7 s) |
+| Responsiveness | 12.5 s | FFTs for the all-shifts null (7.5 s) |
+| Responsiveness, movement-free trials | 11.6 s | The same |
+| Export | 8.5 s | Writing SVG and PDF in matplotlib (5.3 s, 1.9 s of it embedding fonts) |
+
+Everything else on that session took under 1.3 s. Connections on its largest
+region (DP) took 1.7 s. On the other sessions, locking took 5.8–16.4 s and
+responsiveness 7.6–12.7 s.
+
+**Not covered, because the release lacks them:**
+- **No missing wheel:** the behaviour release has wheel data for all 459 sessions
+  (`missing_wheel_sessions: []`). Phy folders cover the no-wheel case.
+- **No session with two shanks of one Neuropixels 2.0 probe:** the release has 4
+  shank insertions (`probe00a`, `probe00b`), one per session. 3a3ea015 covers a
+  single shank.
+
+**No new dependency:** `scipy.fft` is part of SciPy.
+
+### 2026-10-01 — Population trajectories (`analysis/trajectories.py`, `configs/trajectories.yaml`)
+
+**What (the user's step 9):** a Trajectories tab beside Heatmap in the Population
+card.
+- **Views:** the shown units' condition-averaged activity on its principal
+  components, in pc_1–pc_2 or in 3-D, with each component plotted against time
+  below.
+- **What it uses:** the page's event, window, bins, trial filters and split (one
+  line per condition, or "all trials" without a split).
+- **Descriptive:** no statistic, no null, no label. Axes are `pc_k` (R5). The
+  caption says "descriptive (no test)", and a test checks that nothing sent to the
+  page uses label words.
+- **Saved and exported:** the tab and its dimensions are saved in the project.
+  Export adds `trajectories.svg/.pdf/.json`, with the trajectories, the components
+  and the units they belong to.
+
+**Cross-validation, the heatmap's rule:**
+- **The split:** each condition's trials are split alternately
+  (`psth.alternate_halves`). The 1st, 3rd, ... trials fit and the 2nd, 4th, ... are
+  shown.
+- **Everything learned comes from the fit half:** each unit's soft-normalisation
+  scale (rate range + 5 Hz, Churchland et al. 2012), its mean and the components.
+  The shown half is normalised, centred and projected with those numbers.
+- **Checks:** a test shows that flooding the shown trials with spikes leaves the
+  components unchanged. The caption reports each component's share of the *shown*
+  trials' variance.
+
+**Choices, flagged for review:**
+1. **Smoothing:** a Gaussian of 30 ms sigma, applied to every condition average
+   before the fit, the same on both halves.
+2. **Equal weight per condition:** conditions are averaged first, regardless of
+   their trial counts. Small conditions are therefore noisier, and a condition
+   needs at least 5 trials in each half (`configs/trajectories.yaml`). Below that it
+   is left out and named in the caption.
+3. **No baseline subtraction:** the toolbar's baseline option applies to the
+   heatmap, not here. Each unit is centred on its fit-half mean instead.
+4. **Fixed signs:** each component is flipped so its largest loading is positive,
+   so the same data always draw the same picture.
+5. **3-D uses matplotlib's own 3-D axes,** so there is no new dependency.
+
+**Checks (test-only spike trains, never shown as data):**
+- **A planted rank-2 structure is recovered on the shown trials:** pc_3 stays at
+  the noise floor, and the shown trajectories map onto the planted time courses
+  with R² of 0.99 and 0.93.
+- **What the test asserts:** the rank and the R², not a total variance share. That
+  share depends on Poisson noise: 0.70 at 60 trials per condition, 0.91 at 300.
+- **Exclusions:** too-few-trial conditions are left out and counted, and signs are
+  fixed.
+
+**Real data (d23a44ef, 390 QC-passing units, stimulus onset, BWM inclusion):**
+- **By choice:** 108 + 38 fit trials and 107 + 37 shown (right, left). Shown-trial
+  variance on pc_1–3 is 59%, 17% and 3%, against 65%, 17% and 4% on the fit half.
+- **By signed contrast (9 levels):** shown-trial variance on pc_1–3 is 48%, 12%
+  and 4%. The conditions separate after stimulus onset.
+- **Speed:** 0.5–1 s per view.
+
+**No new dependency.**
+
+### 2026-10-01 — Rename: UnitWave Studio
+
+**Decision (the user's):** the app is renamed **UnitWave Studio**, in two parts.
+
+**What changes:**
+- **Part 1, the name users see:**
+  - every user-facing string: page titles, the app header, the server's startup
+    message, export manifests (an `app` field) and figure metadata (the creator
+    written into SVG, PDF and PNG files);
+  - the docstrings that name the app, and the plan doc's title;
+  - CLAUDE.md's title and §1, and a rewritten README;
+  - the `description` in pyproject.toml;
+  - file endings: projects `.ndstudio.json` → `.unitwave.json`, session sets
+    `.ndset.json` → `.unitwave-set.json`.
+- **Part 2, the Python package:**
+  - `neurodecoder` → `unitwave` (moved with `git mv`, so history follows), with
+    every import, `python -m` command and pyproject's `name`;
+  - environment variables `UNITWAVE_DATA_ROOT` and `UNITWAVE_NETWORK_TESTS`.
+
+**What deliberately doesn't change:**
+- **The data folder** `~/data/neurodecoder` (over 20 GB; `configs/data.yaml`).
+- **Cache keys,** so cached sessions load without a rebuild.
+- **Run folder names** (`runs/<time>_studio`) and **branch names.**
+- **The local repository folder and the GitHub repository:** the user renames those.
+- **The historical record:** older entries in this file (including the decision
+  titled "Direction change: Neurodecoder Studio"), NEGATIVE_RESULTS.md,
+  PRIOR_ART.md and ROADMAP.md keep their wording. CLAUDE.md's pointer to that
+  decision keeps its real title.
+
+**Backwards compatibility:**
+- **Old files open:** projects ending `.ndstudio.json` and sets ending
+  `.ndset.json` still open, and the recent-projects and sets lists show both
+  endings.
+- **Old files are never deleted or overwritten:** saving a project opened from an
+  old file writes the new ending beside it. If that name is taken, it takes the
+  next free name (`-2`, `-3`, ...). The page says where a save will go.
+- **Old environment variables (part 2):** `NEURODECODER_DATA_ROOT` and
+  `NEURODECODER_NETWORK_TESTS` keep working, with a one-line deprecation warning.
+  When both old and new are set, the new one wins.
+
+**Part 2, done:**
+- **The package moved** with `git mv neurodecoder unitwave`: 84 files, as renames.
+  Every reference changed with one pattern, the package name as a whole word not
+  after "/", which keeps `~/data/neurodecoder` and the uppercase variable names.
+  That is 421 replacements, and every diff line in a moved file is that one name.
+  Commands are `python -m unitwave.studio.server`, and the export manifest's
+  `command` is `unitwave.studio export`.
+- **Environment variables** are read through `unitwave/env.py`, which tests cover:
+  new name, old name with one warning line, both set, unset.
+  - 19 tests now read `env("DATA_ROOT", ...)` instead of `os.environ.get(...)`,
+    and their unused `import os` went.
+  - `test_load.py` sets `UNITWAVE_DATA_ROOT`.
+  - No other test changed.
+- **Before and after:** 559 passed and 2 skipped before (at ad85466). After, 563
+  passed and 2 skipped: the same 561 test IDs plus the 4 new environment tests.
+- **Cache keys are identical** (checked on three sessions). d23a44ef loads from the
+  cache in 0.4 s without calling a backend.
+- **Kept on purpose:**
+  - the comment commands in `configs/runs/phase3_*.yaml`: Phase 3's run
+    manifests record those files' byte hashes, and NEGATIVE_RESULTS and older
+    entries here cite them;
+  - `docs/PROMPTS.md` and ROADMAP.md's `neurodecoder analyze`: historical.
+- **Consequence:** the Studio configs' comments now name `unitwave/...`, so their
+  byte hashes changed. Projects saved before warn once that `configs/analysis.yaml`
+  and others changed. The change is comment-only, and re-saving clears it.
+
+### 2026-10-01 — Cross-correlograms and putative connections (`analysis/correlograms.py`, `configs/correlograms.yaml`)
+
+**What (the user's step 8):**
+- **A Pairs tab** in the Selected unit card: the cross-correlogram with a chosen
+  partner, its expectation under interval jitter, the jitter-corrected correlogram
+  (observed − expected) and the pair's test results.
+- **A Connections section:** tests every pair among the shown units, both
+  directions, with BH across all of them. It refuses more than `max_units` (30)
+  units.
+- **A "Conn." column** shows each unit's outgoing and incoming putative
+  connections.
+- **Saved and exported:** the partner is saved in the project. Export adds
+  `ccg.svg/.pdf/.json` and `connections.csv`.
+
+**The null, exact rather than sampled:** interval jitter (Amarasingham et al. 2012).
+- **What is jittered:** the second unit's spikes, each uniformly within its fixed
+  5 ms window. That keeps everything slower than 5 ms and breaks millisecond timing.
+- **The statistic:** the count of pairs at lags 1–4 ms.
+- **Why it can be exact:** under jitter the count is a sum of independent
+  per-window counts. Their exact distribution comes from convolution, and the
+  expected correlogram has a closed form.
+- **So there is no seed:** the plan asked for an explicit seed, but nothing is
+  random, as in step 3's all-shifts null.
+- **Checked against Monte Carlo:** 4,000 jitters match the exact mean and tail
+  probability.
+
+**Choices, flagged for review:**
+1. **Excitatory only (one-sided).** The jitter expectation is the true correlogram
+   smoothed over 5 ms windows. A real A → B peak at +2 ms raises the expectation
+   at B → A's lags too, so B → A shows a significant "trough": p ≈ 3e-14 two-sided,
+   on an injected A → B coupling with no B → A coupling. Labelling inhibition
+   would call that every time, so troughs are shown, not labelled.
+2. **Close pairs are labelled but flagged:** units within 50 µm on one probe. Sorting
+   deletes their near-simultaneous spikes, and smoothing that zero-lag dip lowers
+   the expectation at 1–4 ms, which can make an excess.
+   - **On d23a44ef:** in LP all 6 labelled pairs are close; in CA1, 3 of 9.
+   - **The alternative is your call:** exclude close pairs from the test
+     altogether.
+3. **The test set is exactly the shown units,** and a result belongs to that set.
+   Changing the filters means a new test.
+4. **One correlogram implementation:** the quality panel's autocorrelogram now
+   uses `cross_correlogram` (half-open bins), minus each spike's pair with itself.
+
+**A bug found and fixed:** jitter windows assigned by `floor(t / D)` misplace
+boundaries late in a session (`129.04 / 0.005` < 25808). Window probabilities
+stopped summing to 1, and p-values went negative. It now uses exact comparisons
+with the window boundaries, and a test checks that shifting both trains by 3000 s
+changes nothing.
+
+**Checks (test-only spike trains, never shown as data):**
+- **By hand:** correlogram counts, and the jitter expectation.
+- **Calibration:** on pairs sharing a slow 1 Hz rate modulation but no fine
+  coupling, the one-sided p is uniform (KS p > 0.01; 0.94 when measured), with
+  4.3% below 0.05.
+- **Injected coupling:** a 2 ms coupling is found (p < 1e-6) in its direction only.
+
+**Real data (d23a44ef, QC-passing units):**
+
+| Region | Units | Tests | Labelled | Close-flagged among them | Time |
+|---|---|---|---|---|---|
+| CA1 | 13 | 156 | 9 | 3 | 16 s |
+| PO | 30 | 870 | 0 | 0 | 33 s |
+| LP | 28 | 756 | 6 | 6 | 34 s |
+
+- probe00_446 → probe00_468 (CA1, not close): a sharp peak at +1 to +1.5 ms,
+  4,113 pairs per 0.5 ms bin against about 1,450 nearby, q = 2e-244.
+- probe00_468 (82 Hz) receives 6 of CA1's 9.
+
+**Limitations:**
+- Common input at millisecond timescales looks the same as a connection, hence
+  "putative".
+- An effect spread over more than 5 ms is part of the null.
+
+**No new dependency.**
+
+### 2026-10-01 — Unit quality panel (`analysis/unit_quality.py`, `data/cluster_files.py`, `configs/unit_quality.yaml`)
+
+**What (the user's step 7):** a Quality tab beside Activity in the Selected unit
+card. It shows the QC verdicts already computed and labels nothing new.
+- **ISI histogram and autocorrelogram.**
+- **The sliding refractory-period test at every period tested:** violations against
+  the most allowed, and where the unit first passes.
+- **Rate across the session,** with IBL's presence ratio.
+- **The mean waveform,** when there is one.
+- **Every QC reason,** and for IBL sessions in the ONE cache, the three criteria
+  behind IBL's `label` with their values.
+
+Export adds `quality.svg/.pdf/.json`, with every count, test row and waveform
+sample.
+
+**Choices, flagged for review:**
+1. **The refractory details reuse the QC code.** `qc/refractory.sliding_rp_details`
+   shares its setup with `sliding_rp_pass` (moved into `_prepare`). The pass/fail
+   loop is unchanged.
+   - The pinned agreement with IBL's flags is still 553 of 674.
+   - A new test checks the details' verdict equals `sliding_rp_pass` on all 674
+     probe00 clusters.
+2. **For IBL sessions the panel runs the refractory test with IBL's settings**
+   (10% contamination, 90% confidence), for reference. Studio's IBL QC uses IBL's
+   label, and the panel says so. For Phy folders it is part of the QC, with
+   `configs/qc_phy.yaml`'s settings.
+3. **IBL's label criteria use IBL's fixed thresholds** (max confidence ≥ 90%, noise
+   cutoff < 5, median amplitude > 50 µV), from `brainbox` `compute_labels`. They
+   explain a stored label rather than make a new one. On d23a44ef probe00 they
+   reproduce IBL's `label` for all 674 clusters.
+4. **Presence ratio is IBL's definition, exactly:** 10 s bins from the first spike,
+   `np.arange(start, end + 5, 10)` of them. That includes a last bin no spike can
+   reach when the recording ends past the middle of a 10 s window.
+   - It equals IBL's stored value for all 674 probe00 clusters.
+   - In Studio, start and end are the first and last spikes of the probe's
+     *loaded* units. For BWM sessions (good units only) that can differ slightly
+     from IBL's span. No threshold is applied.
+5. **Waveforms come from local files only:**
+   - **IBL:** `clusters.waveforms.npy` in the ONE cache, in µV. The folder comes
+     from the manifest's lab, subject, date and session number, because ONE's
+     local mode can't resolve an eid offline.
+   - **Phy:** the spike-weighted mean template, unwhitened with
+     `whitening_mat_inv.npy`, in template units.
+   - **Otherwise:** a plain reason naming the missing files.
+   - On d23a44ef only probe00's waveforms are cached; probe01's panel says so.
+6. **No drift:** IBL's drift needs per-spike depths, which sessions don't load.
+   Per the plan, any drift label waits for IBL's definition and a config threshold.
+
+**A bug the server tests caught:** an autocorrelogram lag within rounding of the
+window's outer edge overflowed past the last bin. It's fixed, with a test.
+
+**Real data (d23a44ef):**
+- probe00_3: passes QC; the refractory test passes from 1.25 ms; IBL's label is 3
+  of 3 (max confidence 93%, noise cutoff −0.54, median amplitude 122 µV).
+- probe00_27: fails Studio's QC (task firing rate 0.0013 Hz), with a presence ratio
+  of 0.084.
+- Speed: the panel takes about 0.5 s per unit.
+
+**No new dependency.**
+
+### 2026-10-01 — Single-trial view (`analysis/trial_view.py`, `configs/trial_view.yaml`)
+
+**What (the user's step 6b):** every shown unit's spikes in one trial, or a few
+consecutive trials, with the task events and behaviour on the same time axis. It is
+descriptive: no statistic, no null, no label, and the caption says so.
+- **Rows:** the unit table's filters (QC, probe, region node, responsive only),
+  grouped by probe with a separator, the most superficial unit on top. Region bands
+  at the current level, and the selected unit marked.
+- **Window:** the trial's start minus a pre-pad to its end plus a post-pad,
+  half-open. Zero is the trial start or a chosen event.
+- **Events:** every event column the trials table has, with one legend. A missing
+  event is listed as "not recorded on trial k" in the header and the figure, and
+  not drawn. Aligning to it is refused.
+- **Header:** trial number, stimulus, choice, outcome, block, reaction time,
+  `bwm_include`, and whether it passes the current trial filters.
+- **Behaviour:** wheel position and speed, plus optional motion energy and pupil
+  traces. A missing signal is disabled with its reason.
+- **Navigation:** previous/next, arrow keys and a trial box. They step through the
+  filtered trials, or all trials with a toggle, showing "trial k of n filtered
+  trials". Clicking a raster row selects the unit. Clicking a row of the unit's
+  event-aligned raster opens that trial (the server sends each row's trial, as it
+  sends the heatmap's units).
+- **Saved and exported:** the trial, alignment, pads, number of trials, the
+  all-trials toggle and the traces are saved in the project. Export writes
+  `trial.svg/.pdf/.json`, with every spike and event time plotted.
+
+**Choices, flagged for review:**
+1. **Matplotlib PNGs, no client-side renderer.** Hovering a row names the unit,
+   and the exact spike times are in the export's JSON. Hover on single spikes
+   didn't seem worth a new dependency, so I didn't ask.
+2. **Trial numbers are the 0-based row of the trials table**, stated in the
+   header. On d23a44ef that equals IBL's `trial_id`.
+3. **Neighbouring trials are centred on the current trial,** consecutive in the
+   table whether or not they pass the filters. Each is marked when it fails them.
+   N is 3 when the option is on, at most 9 (`configs/trial_view.yaml`).
+4. **Wheel position is plotted relative to its value at zero.** The raw position
+   is cumulative over the session.
+5. **Wheel speed** uses `movement.binned_wheel_speed`, now shared with the
+   wheel-speed PSTH, on 20 ms bins tiled from the zero. A test checks a trial's
+   trace equals its row of that computation.
+6. **Overlapping events:** in IBL the go cue comes within ~1 ms of stimulus onset,
+   and feedback within ~1 ms of the response. Go cue and response are drawn wider
+   underneath as a halo, so both lines show at their true times.
+7. **Event colours** are the categorical slots in task order. Feedback keeps one
+   hue: reward solid, error dotted.
+
+**A bug found and fixed (from step 4b part (a), 3881fe1):** exports ignored the
+view's trial filters.
+- `view_to_query` sent them under `trials`, but the server reads `tf`, so exported
+  figures were computed on every trial while the page used the filter.
+- The sidecars recorded what was used (no filter), so no file is internally wrong,
+  but exports made with a filter don't match the page and should be redone.
+- Now fixed, with a test, and the real-data export test checks 290 kept trials.
+
+**Also:**
+- `conditions._NAMES` is public as `LEVEL_NAMES`, so the header names levels as
+  the splits do.
+- Projects hash `configs/trial_view.yaml`.
+- A bad trial number gets a plain refusal.
+
+**Real data:**
+- **Speed:** on d23a44ef (390 units), the engine takes ~0.1 s per trial and the
+  figure ~0.6 s.
+- **Missing events:** d23a44ef has none. Of the 26 cached sessions on the current
+  loader, 24 have trials with a missing event, mostly first movement. On 9fe512b8,
+  trial 236 has no first movement or feedback time, yet the wheel turns ~0.6 s
+  after stimulus onset. The view shows the wheel and draws no movement line.
+
+**No new dependency.**
+
+### 2026-09-30 — Movement controls (`analysis/movement.py`, `configs/movement.yaml`)
+
+**What (the user's step 6):**
+- **Wheel speed:** |d position / dt| (rad/s) from `behaviour.wheel`, mean ± SEM per
+  bin on the unit PSTH's event, window, bins and trials, drawn under it on the same
+  time axis.
+- **Reaction time split:** "Reaction time" in Split by, early vs late at the
+  median (first movement - stimulus onset). Trials without a first movement are
+  excluded and counted.
+- **Movement-free test:** a checkbox in Responsiveness runs step 3's shift test on
+  the trials whose first movement comes after the response window's end (300 ms).
+  It is kept apart from the all-trials result, and the summary names the trials.
+- **"Movement-locked" label:** a Movement section runs it; the table's "Mov."
+  column shows ↑, ↓ or · per unit.
+
+**The locking statistic and null:**
+- **Statistic:** the mean over trials of (rate 0–200 ms after minus rate 200–0 ms
+  before) each trial's own first movement.
+- **Null:** the same with reaction times permuted within signed-contrast strata,
+  0% split by side (step 5's strata). Each trial keeps its stimulus, and gets a
+  reaction time from its own contrast.
+- **Why it separates the two:** a stimulus-locked unit blurs the same way under
+  true and permuted reaction times, so it isn't labelled; a movement-locked unit
+  is sharper at its true movement times.
+- **Settings:** two-sided, p = (1 + #|null| ≥ |observed|) / (1 + n), 10,000
+  permutations, seed 0, windows in `configs/movement.yaml`. BH across the units
+  tested, at step 3's α.
+
+**Choices beyond the plan, flagged for review:**
+1. **The movement-free box applies to the test only.** The plots keep every
+   trial, and the box says so. It is defined at stimulus onset only.
+2. **Locking needs the contrast columns** as well as `firstMovement_times`, for
+   the strata.
+3. **Projects now hash `configs/selectivity.yaml` and `configs/movement.yaml`.**
+   Step 5 left the selectivity config out. Files saved before this say "was not
+   recorded when the project was saved" instead of failing to open.
+4. **Exports** add `wheel.svg/.pdf/.json` when the session has a wheel, and
+   `movement_locking.csv` when the test was run.
+
+**Checks (test-only Poisson spike trains, never shown as data):**
+- **By hand:** reaction times, movement-free trials (the boundary and missing
+  movements), and a wheel-speed PSTH.
+- **Simulation:** units that fire only after movement are responsive at stimulus
+  onset over all trials (> 90%) and not on movement-free trials (< 20%). A
+  movement-locked unit gets p < 0.01; a stimulus-locked one p > 0.05.
+- **Calibration:** on 150 stimulus-locked units, locking p-values are uniform (KS
+  p = 0.2), with 0 labelled.
+- **A test design bug found:** trials evenly spaced with background spikes only
+  around trials made the shift null in the movement-free test wrong. The tests use
+  irregular spacing and background over the whole session, like real data.
+
+**Real data (d23a44ef, 390 QC-passing units, stimulus onset):**
+
+| Trials | Movement-free trials | Responsive on them | Movement-locked |
+|---|---|---|---|
+| all | 87 of 410 | 153 | 235 (on 410 trials, 28 s) |
+| BWM inclusion (default) | 25 of 290 | 117 | 110 (on 290 trials, 14 s) |
+
+Over all trials, step 3 found 320 of 390 units responsive.
+
+**Flagged: movement-free trials are few, and not a random subset.**
+- Under the default filter only 25 trials remain, so the test has little power.
+  153 or 117 responsive units is not "how many respond to the stimulus without
+  movement": fewer trials find fewer units.
+- 62 of the 87 all-trial movement-free trials have reaction times over 2 s, which
+  BWM inclusion drops as disengaged.
+- They over-represent low contrast: only 5 of the 92 100%-contrast trials qualify.
+  A unit that loses its response on them may be contrast-driven.
+- The 300 ms window is the user's call. A shorter response window keeps more
+  trials.
+
+**Limitations:**
+- Within a contrast, trials are treated as exchangeable. If reaction time tracks
+  the unit's state (engagement, say) for other reasons, the locking label can
+  over-call.
+- The labels are not exclusive: a unit can be both stimulus-responsive and
+  movement-locked.
+- Phy folders have no wheel, so the panel says why. Their events CSV enables the
+  movement-free test and locking when it has `firstMovement_times` and contrasts,
+  as the d23a44ef export does (67 of 161 units locked, all trials).
+
+**No new dependency.**
+
+### 2026-09-30 — Homepage and data selection, part (b) (`analysis/catalog.py`, `studio/sets.py`, `studio/entry.py`)
+
+**3D overview:**
+- **What it shows:** every probe of the matching sessions as a line from the
+  manifest's insertion tip to its top, converted to CCF by `analysis/atlas.ccf_um`,
+  the same conversion as unit positions (`probe_lines`, tested against it).
+- **Lab colours:** the dataviz palette's eight categorical slots in fixed order,
+  largest lab first. The BWM has 12 labs, so the four smallest (churchlandlab,
+  steinmetzlab, mrsicflogellab, hoferlab) share the muted ink as "other labs"; a
+  ninth hue is never generated. The legend names every colour.
+- **Interaction:** hovering names the lab, subject, date and probe; clicking opens
+  the session. It updates with the filters.
+- **A bug found and fixed:** a drag to rotate ended in a click, which would open
+  whatever probe was under the pointer. Only a click that barely moved opens a
+  session now.
+- **Meshes:** `/mesh/<id>` no longer needs an open session.
+
+**Session sets (`data_root/sets/<name>.ndset.json`):**
+- **What a set holds:** plain JSON with the sorted eids, the manifest version, the
+  session and trial filters used, and a sha256 over all of it.
+- **Reopening:** a set restores the filters and the selection. It warns if the
+  manifest version changed, and refuses a file whose hash doesn't match.
+- **Opening by name only:** names are plain (letters, digits, space, `_`, `.`,
+  `-`), and sets are opened by name, never by path.
+- **One session at a time:** the session view still holds one session.
+
+**Open a Phy folder:**
+- **The root:** `configs/catalog.yaml` has `phy_root: phy`, relative to
+  `data_root`.
+- **Path checks:** every path is resolved with symlinks followed and must stay
+  inside the root, so `../` and symlinks pointing out are both refused.
+- **Plain-language refusals:** a folder without `spike_times.npy` or `params.py`,
+  or without `events.csv` beside `params.py`, is refused with a message saying
+  which.
+- **Completion** offers only folders inside the root, and marks which are Phy
+  folders and which have events.
+- **Demo folder:** the Phy-format d23a44ef export was copied to
+  `data_root/phy/d23a44ef/probe00`, with its `events.csv` and README. The original
+  in `derived/` stays for projects that point at it.
+
+**Recent projects:** the `*.ndstudio.json` files in `data_root/projects`, newest
+first, opened by name only.
+
+**No new dependency:** three.js was already vendored.
+
+**Observed while previewing:** twice, a different session was opened on the
+running server by something outside my steps, most likely the user trying it in
+another tab. The page's own open code hadn't run. Opening is a POST, so this is
+expected with more than one client; the page always shows which session is open.
+
+### 2026-09-30 — Homepage and data selection, part (a) (`analysis/catalog.py`, trial filters in `analysis/conditions.py`, `studio/`)
+
+**Homepage:**
+- **Starting up:** the server starts with no session and serves a homepage at `/`.
+  Opening a session is a guarded POST (the existing Origin and Content-Type
+  checks) with a visible loading state, then `/session`, with a Home link back.
+- **Old flags:** `--eid`, `--phy` and `--project` still open a session directly and
+  print its `/session` URL.
+- **Switching session** replaces the Studio object, so selections, caches and test
+  results start empty.
+
+**Manifest version 2 (`data/manifest.py`)**, bumped for two additions:
+- **`region_units`:** the release's good units per Allen acronym per probe, so the
+  region filter can count any node's descendants.
+- **Motion energy and pupil modalities,** read from each session shard's
+  `meta.json` by the same rule the BWM backend uses. A real-data test checks that
+  d23a44ef's listed modalities equal what the backend loads.
+- **Why not "wheel and pose only":** the user offered labelling the behaviour
+  filter that way instead. But Studio already loads motion energy and pupil, the
+  version was being bumped anyway, and reading all 459 shards' metadata takes
+  0.9 s.
+- **Consequence:** Phase 3's saved split files record manifest version 1, and
+  `splits/guards.py` rejects them against version 2. Phase 3 is parked.
+
+**Where the catalog lives:** `data_root/derived/manifest-v2/` (sessions,
+insertions, region_units and provenance). It is built on first start (about 1 s)
+and read afterwards. A new manifest version gets a new folder, so new code never
+reads an old copy.
+
+**Session filters and counts** are in `analysis/catalog.py`; the page only draws
+them.
+- **The filters:**
+  - lab, subject and date range;
+  - a region, with descendants and at least `min_region_units` good units (10 by
+    default, in `configs/catalog.yaml`, adjustable on the page);
+  - minimum good units, minimum included trials, and number of probes;
+  - behaviour modalities, all required.
+- **Unit counts are the release's good units, labelled as such.** d23a44ef lists
+  398; Studio's QC passes 390.
+- **Real example:** HPF with at least 10 units, left-camera pupil, and at least
+  100 good units gives 73 sessions, 125 probes, 15,418 units, 2,965 of them in
+  HPF.
+
+**Trial filters, one definition:** `TrialFilter` in `analysis/conditions.py`, on
+step 5's condition definitions.
+- **The filters:** `bwm_include`, excluding no-go, contrasts, blocks and outcomes.
+- **Counting:** every excluded trial is counted under each reason it fails, and
+  once in the total. Captions give the count kept and why the rest were excluded.
+- **Records:** the filter's canonical key is part of the responsiveness and
+  selectivity cache keys. A test checks a result is never shown under another
+  filter.
+- **Projects and exports:** the filter is part of the project view (older files
+  open on all trials, as they were computed) and of every export sidecar.
+- **Block selectivity** under a filter gets the full trial table plus a mask, so
+  pseudo-sessions keep IBL's block structure.
+- **Phy sessions** offer only the filters their events CSV supports, with the
+  reason shown for the rest (for example, "trials have no bwm_include column").
+
+**Default trial filter: `bwm_include` and exclude no-go** (`configs/catalog.yaml`),
+applied when a session is opened from the homepage or with `--eid`/`--phy`,
+minus what the session can't support.
+- **What `bwm_include` is on d23a44ef:** exactly a reaction-time window. All 120
+  excluded trials have first movement less than 80 ms (58) or more than 2 s (62)
+  after stimulus onset.
+- **Why:** those are anticipatory and disengaged trials, which muddy
+  stimulus-onset responses, and the release's own analyses use the same rule.
+- **Before and after on d23a44ef:**
+
+  | | Trials | Responsive at stimulus onset | Responsive at error feedback |
+  |---|---|---|---|
+  | All trials | 410 | 320 of 390 | 183 of 390 |
+  | `bwm_include` | 290 | 301 of 390 | 153 of 390 (67 error trials, was 106) |
+
+- **Not filtered:** unit QC still uses every trial for its task-period rate. QC
+  decides whether a unit is valid, not what an analysis includes.
+
+### 2026-09-30 — Condition-split PSTHs, tuning curves and selectivity (`analysis/conditions.py`, `analysis/tuning.py`, `configs/selectivity.yaml`)
+
+**What (the user's step 5):**
+- **Conditions from the trials table:** stimulus side, signed contrast, choice,
+  outcome and block. Only those whose columns exist are offered, so Phy sessions
+  get what their events CSV has.
+- **Split PSTH:** one mean ± SEM trace per condition, with a legend giving n per
+  condition, and the raster grouped by condition.
+- **Tuning curve:** mean ± SEM response rate per level in `configs/analysis.yaml`'s
+  response window, with n per level.
+- **Selectivity:** AUROC between two conditions per unit, against a null, with
+  Benjamini–Hochberg across the units tested. `n_tests`, the null, the number of
+  draws, the seed and the window are always shown.
+- **Settings:** `n_permutations`, `n_pseudo_sessions` (10,000 each), `seed` and
+  `min_trials` are in `configs/selectivity.yaml`.
+
+**Conventions, checked on d23a44ef rather than assumed:**
+- **Contrast:** each trial sets exactly one of `contrastLeft` or `contrastRight`,
+  and the side without a stimulus is NaN. Zero contrast is 0 on the stimulus side.
+  Trials that break this are excluded and counted.
+- **Choice:** on correct trials a right stimulus has `choice = -1` and a left one
+  `+1`, so the levels are named "right (-1)" and "left (+1)".
+- **No-go trials** (choice 0) are excluded and counted.
+
+**Nulls:**
+- **Choice:** labels permuted within signed-contrast strata, as the user asked.
+- **Block:** IBL-generator pseudo-sessions (`evaluation/nulls.py`), as the user
+  asked.
+- **Speed:** AUROC comes from rank sums. Ranks don't depend on labels, so each
+  unit's ranks are computed once and every draw is one matrix product, which
+  takes under a second for 390 units.
+
+**Choices beyond the user's spec, flagged for review:**
+1. **Side:** permuted within choice strata. This is the mirror of the choice/contrast
+   confound: without it, a choice-driven unit would be called stimulus-selective.
+2. **Outcome:** permuted within signed-contrast strata, because errors concentrate
+   at low contrast.
+3. **Choice and outcome strata split 0% contrast by stimulus side.** At 0% the
+   rewarded side still differs and choice tracks it, so one merged 0% stratum
+   would leave choice confounded with side. Display and tuning keep IBL's single
+   0%.
+4. **Block:** uses the pre-event (baseline) window. The block prior predicts the
+   stimulus side 80% of the time, so a post-stimulus window would count stimulus
+   responses as block selectivity. IBL's Brain Wide Map decoded block before the
+   stimulus.
+
+**Checks (test-only Poisson spike trains, never shown as data):**
+- **By hand:** a tuning curve, AUROC with ties, and response rates.
+- **Stratified permutations** keep every stratum's label counts, and are seeded.
+- **Calibration:** p is uniform for side, choice, outcome and block (KS p from
+  0.15 to 0.62). BH rejects in at most 5 of 40 all-null datasets.
+- **Choice confound:** on units driven only by the stimulus side, a plain shuffle
+  flags 100% as choice-selective; the stratified null flags 6.7%.
+- **Block:** a plain permutation flags drifting units far more often than
+  pseudo-sessions do. **The pseudo-session null is valid on average over block
+  sequences, not for every sequence.**
+  - Across 30 sequences, drifting units reached p < 0.05 3.3% of the time
+    (median 0%, maximum 15%).
+  - One atypical sequence gave 18%.
+  - The test averages over 12 sequences.
+
+**Real data (d23a44ef, 390 QC-passing units, stimulus onset):**
+
+| Condition | Selective | Direction |
+|---|---|---|
+| side | 64 | 40 higher for right |
+| choice | 55 | 32 higher for left |
+| outcome | 3 | |
+| block | 0 | pre-event window, smallest p 0.0034 |
+
+**Limitation:** within strata, trials are treated as exchangeable. Slow drift in a
+unit's rate is accounted for only by the block null.
+
+### 2026-09-30 — Phy QC gains IBL's sliding refractory-period test (`qc/refractory.py`)
+
+**Decision (the user's, of three options):** port ibllib's **MIT-licensed**
+`brainbox.metrics.single_units.slidingRP_viol`, with attribution. It needs no new
+dependency.
+- **The test:** for refractory periods of 1.25–10 ms, a unit passes if its count of
+  close spike pairs is at or below the 10% Poisson quantile expected at 10%
+  contamination. Low-rate units fail by design.
+- **Config:** `refractory_contamination: 0.1` and `refractory_alpha: 0.1` are in
+  `configs/qc_phy.yaml`. The algorithm's fixed parts (20 kHz samples, 0.25 ms
+  bins, the tested refractory periods) are constants in the module.
+- **Correlogram:** phylib's autocorrelogram (BSD-3-Clause) is computed with sorted
+  searches instead of its shift loop.
+
+**Rejected:**
+- **Depending on `slidingRP` 1.1.1:** it is GPL-3.0 and adds statsmodels and
+  colorcet. Distributing Studio, for example in the planned installer, would then
+  need a GPL-compatible licence, and the repo has none yet.
+- **Hill et al. ISI violations:** simple, but not aligned with IBL's QC.
+
+**Checks:**
+- **Faithful port:** identical to ibllib's original code (run with phylib's
+  original correlogram) on all 73 checked clusters of d23a44ef probe00.
+- **Against IBL's stored flags:** the port agrees on 553 of 674 clusters. 94
+  clusters pass only IBL's flag and 27 pass only the port. IBL's stored value
+  comes from the newer GPL implementation, which works at 1/30,000 s resolution
+  and passes more units, so the two are not the same test.
+- **Real-data regression test:** it pins 553 of 674.
+
+**Effect on Phy QC (probe00 of the Phy-format d23a44ef folder):** 161 units pass,
+down from 200.
+- 101 pass both Phy QC and IBL's `label == 1` (was 103).
+- 60 pass only Phy QC (was 97).
+- 13 pass only IBL's QC (was 11).
+
+The rest of the gap is IBL's noise-cutoff and amplitude metrics. They need spike
+amplitudes in volts, which a Phy folder doesn't give.
+
+**Consequences:**
+- Phy projects saved before this warn that `configs/qc_phy.yaml` changed when
+  reopened.
+- Studio's start-up on a Phy folder takes about 7 s longer for 674 clusters.
+
+### 2026-09-30 — Probe filter in Studio
+
+**Decision (the user's):** a probe filter, All or one probe. It applies to:
+- the unit table and the region tree's counts;
+- the population heatmap and mean;
+- the 3D view (units, tracks and region meshes);
+- the probe strip;
+- the responsiveness test.
+
+**How:**
+- **One selection rule:** the filter is part of the server's unit selection, so
+  every view uses the same units.
+- **Testing:** results are keyed by (event, unit set, probe). Benjamini–Hochberg
+  runs over exactly the units tested on that probe. An all-probe result is a
+  separate test, never a subset of another. Changing probe clears the
+  responsive-only filter, as changing event does.
+- **Stripe colours:** a stripe beside the heatmap rows shows each row's probe,
+  using the dataviz palette's categorical slots in their fixed order. Each
+  probe's colour is set by its place in the session's probe list, so filtering
+  never repaints a probe. A legend names every colour. Past eight probes the rest
+  share the muted ink.
+- **Captions:** the population caption names the probes included. The test
+  summary names the probes tested.
+- **Projects and exports:** the probe is part of the saved view. Version 1 files
+  written before this open on all probes. The export's `population.json` lists
+  each row's probe.
+
+**Result (d23a44ef, First movement):** probe01 alone gives 241 of 277 units
+responsive (86 up, 155 down), with BH over 277 tests.
+
+### 2026-09-30 — Project files and figure export (`studio/project.py`, `studio/export.py`)
+
+**Project file (`*.ndstudio.json`):**
+- **What it holds:**
+  - the data source (an IBL eid and backend with its release, or a Phy folder
+    plus events CSV);
+  - the sha256 of each Phy file that changes what Studio shows, and of the
+    events CSV;
+  - a fingerprint of the loaded Session (every spike train, the units and
+    trials tables);
+  - the QC and analysis config hashes;
+  - the view: event, window, bin, baseline, level, node, filters, unit.
+- **No results.** Opening a project reloads and recomputes everything.
+- **What changed is named, not blocked.** "`events.csv` changed", "`cluster_group.tsv`
+  is new", "the loaded data differ", "`configs/qc.yaml` changed". These appear in
+  a banner and on the console.
+- A view that relied on the responsiveness filter reruns the test on opening,
+  because results are never stored.
+- **Writing:** saves are atomic, and the file name must end in `.ndstudio.json`.
+
+**Where projects go:**
+- `--project FILE` alone opens a project.
+- With `--eid` or `--phy`, it starts a new one there. It refuses if FILE exists.
+- Without `--project`, Save writes to `data_root/projects/<name>.ndstudio.json`,
+  numbered so nothing is overwritten.
+
+This settles step 1's open folder-picker question for now: paths come from the
+command line, not a dialog.
+
+**Figure export:**
+- **Destination:** each export is a new `runs/<UTC time>_studio/` folder
+  (`runs/` is gitignored, as §7 expects).
+- **Figures:** `unit` and `population` as SVG and PDF, drawn by the same viz/
+  builders as the page. They use the light theme at a fixed size, are titled
+  with the page caption, and keep text editable (`svg.fonttype none`,
+  `pdf.fonttype 42`).
+- **Sidecars:** a JSON file beside each figure holds every array it was drawn
+  from: bin centres, mean, SEM, trial counts, raster times, unit order, rates and
+  scaled rows. Tests check the sidecars equal the engine's output.
+- **`responsiveness.csv`** is included when the test ran for that event.
+- **`manifest.json`:** git SHA and dirty flag, the project snapshot, the view,
+  the responsiveness config, the software versions, and `seed: null` (nothing
+  random).
+
+**Safety:** the two write endpoints (`POST /api/project`, `/api/export`) accept
+only `application/json` from the page's own origin. A cross-site page can't
+trigger them, and a test covers both refusals.
+
+**Duplication, knowingly:** `_git` and `_jsonable` are small copies of those in
+`cli/evaluate.py`. Importing them would pull the evaluation stack into Studio, and
+moving them into a shared module means refactoring validated code outside this
+step.
+
+**Checked on real data:**
+- **Save and reopen:** saving d23a44ef at First movement / CA1 / `probe00_433`
+  and reopening restored the view with no warnings.
+- **A changed file:** a Phy project whose events copy lost its last trial
+  reopened with both warnings, and with 409 trials recomputed.
+
+### 2026-09-30 — Responsiveness against a shift null (`analysis/responsiveness.py`, `configs/analysis.yaml`)
+
+**Decision:**
+- **Statistic, per unit and event:** the mean over trials of (rate in 0–300 ms −
+  rate in −200–0 ms), two-sided.
+- **Null:** the spike train circularly shifted against the event times. It keeps
+  the train's own timing and the events' spacing, and breaks their alignment.
+- **p** = (1 + #shifts with |statistic| ≥ |observed|) / (1 + #shifts).
+- **Correction:** Benjamini–Hochberg across the units tested together, α = 0.05.
+- **Reported with every result:** the windows, the number of shifts, the number
+  of tests and the trial counts.
+
+**Different from the plan:** the plan was 1,000 random shifts with a seed. That
+floors p at about 0.001, and with 390 units under BH it would need about 10,000
+shifts per unit. Instead, **every** circular shift on a grid is evaluated at
+once, by FFT cross-correlation. Shifts closer than `min_shift_s` = 10 s to zero,
+either way, are excluded.
+- **Deterministic:** no random draws and no seed, so R7 is satisfied trivially.
+- **Grid:** 5 ms, 456,801 shifts per unit on d23a44ef. On stimulus onset, 1 ms
+  gave 321 responsive units, 2 ms 322 and 5 ms 320. 5 ms runs in 11 s for 390
+  units, against 52 s at 1 ms.
+- The statistic is computed on that grid. A test checks it against direct
+  counting.
+- Units are processed 8 at a time, since each null has millions of values.
+
+**Checks:**
+- **Hand-computed case:** one spike after every event gives p = 1/(1 + n_shifts)
+  exactly.
+- **Calibration:** Poisson units with no event locking give uniform p (KS test).
+  BH rejects in at most 5 of 40 all-null datasets.
+- **Real-data negative control:** 410 random fake event times gave 0 of 390
+  units responsive for each of two seeds, and 15–16 with uncorrected p < 0.05
+  (about 4%).
+- **Cross-check:** a per-trial paired Wilcoxon signed-rank test with BH gives
+  328 of 390 at stimulus onset (shift null: 321 at 1 ms) and 175 at error
+  feedback (178).
+
+**Finding (d23a44ef, 390 QC-passing units, 5 ms grid):**
+- **Stimulus onset:** 320 of 390 responsive (154 up, 166 down).
+- **At 1 ms:** first movement 329, reward 311, error 178.
+
+That is a large fraction. The baseline window falls in IBL's enforced quiescence
+period, and movement follows within a few hundred ms, so "responsive to stimulus
+onset" includes movement-related change. The UI and captions say "rate changes
+around this event", never "responds to the stimulus". Phy-format probe00: 117 of
+200.
+
+**Cross-validated heatmap sorting:** the population heatmap is now sorted by peak
+time on odd trials and shows even trials, and its caption says so. This fixes
+the prototype's circularity. The diagonal persists on held-out trials at
+d23a44ef's stimulus onset.
+
+**Server:** now threaded (`ThreadingHTTPServer`), so an 11 s test doesn't freeze
+the plots. Figures use matplotlib's object API, with no shared pyplot state.
+
+**Not done:** the refractory-period metric for Phy QC, which the plan suggested
+considering. It is still open.
+
+### 2026-09-30 — Atlas and 3D view, built (`analysis/atlas.py`, `data/atlas_meshes.py`, `studio/`)
+
+**What was built:**
+- **Region levels:** Allen, Beryl or Cosmos, default Beryl.
+- **Region tree:** counts per node, and selecting a node includes its
+  descendants.
+- **3D brain (three.js):** whole-brain and region meshes in Allen colours, the
+  units, both probe tracks, and the selected unit. Clicking a unit selects it.
+- **Probe strip:** region runs along the shank.
+- **Redesign:** a left rail, cards, and light and dark themes from the dataviz
+  reference palette. Plots use a single-hue blue ramp for magnitude, blue–grey–red
+  for signed values, and a muted event line.
+
+**Decisions:**
+- **Coordinates:** IBL xyz → CCF µm uses iblatlas's bregma landmark. A test checks
+  it against `AllenAtlas.xyz2ccf`.
+- **Real-data check:** all 398 d23a44ef units land in a voxel of their own Allen
+  region in the 25 µm annotation volume (`tests/test_atlas.py`).
+- **Meshes:** Allen's per-structure OBJ files, downloaded on first view into
+  `data_root/atlas/ccf_2017_meshes/` (the user approved the downloads). They are
+  written atomically and refused if the content isn't an OBJ. All three levels
+  for d23a44ef, plus the whole brain, came to 30 files and 27 MB.
+- **Volumes:** the Allen volumes for the test (`annotation_25.nrrd`,
+  `average_template_25.nrrd`, 37 MB) are in `data_root/atlas/`.
+- **Region runs on the probe strip** span recorded units only. They are not
+  histological boundaries, and the strip says so.
+- **Allen's root colour is white,** so the page draws it in muted ink.
+- **The page computes no numbers.** Regions, trees, positions, tracks and heatmap
+  row order all come from the API. Static files are served only from
+  `studio/static/`, which a test guards.
+
+**Finding:** at Beryl, 73 of the 390 QC-passing units are at `root`.
+- 24 are in fibre tracts: ml, alv, sptV, icp, arb.
+- 49 carry only a coarse parent label: MY 31, CB 17, TH 1.
+- At Cosmos only the 24 fibre-tract units remain at root.
+
+The tree shows these as "in no Beryl region" rather than dropping them. At Allen
+level, the coarse parents' meshes (CB, MY, TH) are large and dominate the 3D view.
+
+**Consequences:** CLAUDE.md §8's Studio line now names three.js. The Phy data has
+no positions or regions, so its 3D view, levels and tree are disabled, each with
+its reason.
+
+### 2026-09-30 — Studio step added: Atlas and 3D view; three.js for the 3D brain
+
+**Decision (the user's):** a new step 2 in `docs/proposals/studio_next_steps.md`,
+after the Phy import. It adds:
+- a region level selector (Allen, Beryl, Cosmos; **default Beryl**), with Allen
+  names and colours from iblatlas;
+- a hierarchical region filter;
+- a 3D brain from the Allen CCF meshes, cached locally, showing each probe track
+  and the selected unit's site;
+- a 2D probe strip;
+- a visual redesign.
+
+Responsiveness and the project file move to steps 3 and 4.
+
+**three.js** will draw the 3D brain. It has no Python-side equivalent that fits
+a browser UI. It is MIT licensed, and it runs as an ES module with no build
+step, so §8's "plain page, no build step" holds. It will be kept in the repo as a
+local file rather than loaded from a CDN, because Studio is a local app that must
+work offline. **Installed 2026-09-30:** r170 (npm `three@0.170.0`),
+`three.module.min.js`, `OrbitControls.js` and `OBJLoader.js`, with its MIT
+`LICENSE`, in `neurodecoder/studio/static/vendor/three/`.
+
+**Chart library: none.** Decided at the start of the step, following the plan's
+recommendation. Plots stay matplotlib PNGs. Heatmap rows are clickable and
+hoverable through a row→unit map the server sends with the image.
+
+**Consequences:**
+- The Allen CCF 2017 structure meshes are a new external data source. They are
+  downloaded once into `data_root/atlas/`, never into the repo.
+- iblatlas's annotation volume is needed for the coordinate test.
+- Unit QC keeps reading the Allen acronym, whatever level is displayed.
+
+### 2026-09-30 — Phy import and Phy QC (`data/backends/phy.py`, `qc/phy.py`, `configs/qc_phy.yaml`)
+
+**Decision:** Studio reads a Kilosort/Phy output folder (one probe) plus a CSV of
+trial events into the same `Session` as the other backends. It adds a Phy-specific
+unit QC (the user's choice over failing every unit):
+- the group must be in `[good]`;
+- the task-period rate must be at least 0.1 Hz, with the same task-period
+  definition and threshold as `configs/qc.yaml`.
+
+**How it reads a folder:**
+- `params.py` is parsed with `ast`, never executed. Phy itself executes it.
+- `spike_times.npy` must hold integer samples.
+- **Group:** from `cluster_group.tsv`, else `cluster_KSLabel.tsv`, else missing.
+  `group_file` records which file. Kilosort writes `cluster_group.tsv` as a copy
+  of its own labels, so a group is not proof of manual curation.
+- **Depth:** the peak channel of the cluster's most-used template. The plan said
+  amplitude-weighted. Peak channel needs no amplitude threshold, and Phy splits
+  and merges don't break it.
+- **Events:** the CSV uses canonical trial names and needs `intervals_0` and
+  `intervals_1`. Events outside the span of the recorded spikes are refused as
+  being on the wrong clock. A smaller clock offset can't be detected; that needs
+  sync, a later step.
+- **Missing fields:** region, IBL label, 3-D position and whole-recording rate
+  are declared missing.
+- **No cache:** a folder loads in seconds.
+
+**Real-data check:** IBL's own Kilosort output for d23a44ef probe00 (ONE,
+revision 2024-05-06), rewritten into Phy's format. It is not a folder Kilosort
+or Phy wrote.
+- `tests/test_phy.py`: all 674 clusters, identical spike counts, times within
+  half a sample, and Kilosort's 206 good.
+- PSTHs match the BWM backend's for the 114 shared units within bin-edge
+  rounding: at most 2 spikes in one bin.
+- A copy for trying Studio is in `data_root/derived/phy_export_d23a44ef/`, with
+  a README stating its provenance.
+
+**Finding:**
+- Kilosort's `good` is much looser than IBL's QC label. On probe00, Phy QC passes
+  200 units and IBL's `label == 1` (the BWM release) 114.
+- 103 pass both, 97 pass only Phy QC, and 11 pass only IBL's QC.
+- Phy QC is therefore not equivalent to the BWM units. A refractory-period
+  metric from spike times is proposed for step 3.
+
+**No new dependency. No `PREPROC_VERSION` bump:** a new config for a new data
+source changes no existing output.
+
+**Alternatives considered:**
+- `spikeinterface`'s Phy reader: a large dependency for a few `.npy` files, and
+  it executes `params.py`.
+- Mapping Phy groups onto IBL's numeric label: rejected, because they measure
+  different things.
+
+### 2026-09-30 — Direction change: Neurodecoder Studio, a post-sorting analysis app
+
+**Decision (the user's):** Neurodecoder becomes **Neurodecoder Studio**, a local
+app for analysing data after spike sorting. You load sorted Neuropixels units plus
+task events, browse units, and run event-aligned and tuning analyses in a GUI, with
+strict statistics. Spike sorting and curation stay in existing tools (Kilosort,
+Phy). This reverses CLAUDE.md §2's "not a general neuroscience analysis library" and
+narrows §1's cross-animal reliability question to parked work. CLAUDE.md §1–§3 and
+§5–§9 were updated to match, after the prototype. First step: a prototype on branch
+`studio-prototype`, from `phase3-gate-audit`.
+
+**Why:** Phase 3's gate did not pass on the confirmation set
+(`docs/NEGATIVE_RESULTS.md`, 2026-09-30). Only movement state beat
+`null_trialstruct`, so the reliability layer has no decoding signal to be reliable
+about yet.
+
+**Kept:** the data layer (`data/`, the session contract, cache, backends), unit QC
+(`qc/`), R2, R4, R6 and R7, and "missing means missing". R4 now applies to
+analyses: responsiveness claims need a shuffle null (next step, not the prototype).
+
+**Stack for the prototype: no new dependency.**
+- Python's standard-library `http.server` serves one HTML page and three endpoints.
+- matplotlib, already in §8, renders the plots server-side as PNGs.
+- The page is plain HTML and JavaScript, with no build step.
+
+The UI calls `neurodecoder/analysis/` only. Streamlit, Panel and NiceGUI were each
+one large dependency; none was needed for three plots and a table. Plotly stays
+excluded (§8). Revisit if interactivity like zoom or hover becomes necessary.
+
+**Analysis parameters are not preprocessing:** PSTH window, bin width and baseline
+are chosen per plot and never written to a cache, so R6's `PREPROC_VERSION` does
+not apply to them. The heatmap's row scaling is for display only
+(`scale_rows_for_display`), not an R3 normalisation.
+
+**Known caveat, not fixed in the prototype:** the population heatmap is sorted by
+peak time on the same trials it displays. That produces a diagonal even from noise.
+Cross-validated sorting (sort on half the trials, show the other half) belongs with
+the shuffle-null step.
+
+**Alternatives considered:** Streamlit (fastest to write, but a heavy dependency
+and a rerun-the-script model); a desktop Qt app (packaging cost, and Phase 8b
+already chose a local browser UI).
+
+**Consequences:** Phases 4–7 and 9 are parked with Phase 3. Phase 8b's local-app
+plan (installer, refusal screens, front end only) carries over to Studio.
+
 ### 2026-09-30 — Block split: adjacent pairs, scored per fold — made AFTER the confirmation set
 
 **Made after seeing the confirmation set's block table**

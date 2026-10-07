@@ -1,13 +1,12 @@
-import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from neurodecoder.data import cache as cache_module
-from neurodecoder.data.cache import SessionCache, cache_key
-from neurodecoder.data.session import (
+from unitwave.data import cache as cache_module
+from unitwave.data.cache import SessionCache, cache_key
+from unitwave.data.session import (
     BEHAVIOUR_FIELDS,
     TRIAL_FIELDS,
     UNIT_FIELDS,
@@ -15,6 +14,7 @@ from neurodecoder.data.session import (
     Session,
     TimeSeries,
 )
+from unitwave.env import env
 
 KEY_PARTS = {
     "eid": "fixture-eid",
@@ -173,7 +173,7 @@ def test_entry_records_what_it_holds(tmp_path):
     assert cache.describe(KEY_PARTS)["key_parts"] == KEY_PARTS
 
 
-DATA_ROOT = Path(os.environ.get("NEURODECODER_DATA_ROOT", "~/data/neurodecoder")).expanduser()
+DATA_ROOT = Path(env("DATA_ROOT", "~/data/neurodecoder")).expanduser()
 EID = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
 BWM_ROOT = DATA_ROOT / "bwm_compressed/bwm_ephys/1.2.1"
 NWB_PATH = (
@@ -185,7 +185,7 @@ NWB_PATH = (
 
 @pytest.mark.skipif(not BWM_ROOT.exists(), reason=f"BWM data not at {BWM_ROOT}")
 def test_real_bwm_session_round_trips(tmp_path):
-    from neurodecoder.data.backends.bwm_compressed import load_session_bwm
+    from unitwave.data.backends.bwm_compressed import load_session_bwm
 
     original = load_session_bwm(EID, BWM_ROOT)
     cache = SessionCache(tmp_path)
@@ -196,7 +196,7 @@ def test_real_bwm_session_round_trips(tmp_path):
 
 @pytest.mark.skipif(not NWB_PATH.exists(), reason=f"NWB file not at {NWB_PATH}")
 def test_real_nwb_session_round_trips(tmp_path):
-    from neurodecoder.data.backends.dandi_nwb import load_session_nwb
+    from unitwave.data.backends.dandi_nwb import load_session_nwb
 
     original = load_session_nwb(NWB_PATH)
     cache = SessionCache(tmp_path)

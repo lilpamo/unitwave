@@ -1,0 +1,138 @@
+# The IBL decision task (Brain Wide Map), as UnitWave has always read it: one built-in
+# task definition among others (step 3, docs/DECISIONS.md "User-defined tasks").
+# Changing a value changes analyses; never change one to improve a result (R6).
+# Schema: unitwave/analysis/tasks.py.
+
+name: ibl
+label: IBL decision task
+# Without these a trials table can't be read as this task at all.
+required_columns: [intervals_0, intervals_1]
+
+# Events to align on: a time column, and optionally a condition on another column.
+# Feedback is split by outcome, so reward and error are never averaged together.
+events:
+  stim_on: {label: Stimulus onset, column: stimOn_times}
+  first_movement: {label: First movement, column: firstMovement_times}
+  feedback_reward: {label: "Feedback: reward", column: feedback_times, when: {column: feedbackType, equals: 1}}
+  feedback_error: {label: "Feedback: error", column: feedback_times, when: {column: feedbackType, equals: -1}}
+
+# The single-trial view draws these time columns, in task order.
+trial_view_events:
+  stimOn_times: stimulus on
+  goCue_times: go cue
+  firstMovement_times: first movement
+  response_times: response
+  feedback_times: feedback
+  stimOff_times: stimulus off
+
+# Conditions to split trials by. Each reads a column (missing_values become NaN) or a
+# named derivation (unitwave/analysis/tasks.py, DERIVATIONS). Levels are named by a
+# map, a format, or by the derivation. Excluded trials are counted with `excluded`.
+conditions:
+  side:
+    label: Stimulus side
+    type: categorical
+    derive: {name: stimulus_side, columns: [contrastLeft, contrastRight]}
+    level_names: {-1: left, 1: right}
+    excluded: trials without exactly one of contrastLeft / contrastRight
+  contrast:
+    label: Signed contrast
+    type: ordinal
+    derive: {name: signed_contrast, columns: [contrastLeft, contrastRight]}
+    level_format: percent
+    excluded: trials without exactly one of contrastLeft / contrastRight
+  choice:
+    label: Choice
+    type: categorical
+    column: choice
+    missing_values: [0]
+    level_names: {-1: right (-1), 1: left (+1)}
+    excluded: no-go trials (choice 0)
+  outcome:
+    label: Outcome
+    type: categorical
+    column: feedbackType
+    level_names: {-1: error, 1: reward}
+    excluded: trials without feedback
+  block:
+    label: Block
+    type: ordinal
+    column: probabilityLeft
+    level_format: "p(left) {v:g}"
+    excluded: trials without a block
+  reaction_time:
+    label: Reaction time
+    type: continuous
+    derive: {name: median_split_difference, columns: [firstMovement_times, stimOn_times]}
+    excluded: trials without a first movement
+
+# Strata that nulls permute within: a condition, or a named derivation.
+strata:
+  choice: {condition: choice}
+  signed_contrast: {derive: {name: signed_contrast_zero_by_side, columns: [contrastLeft, contrastRight]}}
+
+# Two-level comparisons offered for selectivity: AUROC > 0.5 means a higher rate at the
+# second level. null_model is a permutation within declared strata, or pseudo-sessions
+# from a known block generator (only IBL's exists). window: response or baseline.
+comparisons:
+  side:
+    levels: [-1, 1]
+    null_model: {permute_within: choice}
+  choice:
+    levels: [-1, 1]
+    null_model: {permute_within: signed_contrast}
+  outcome:
+    levels: [-1, 1]
+    null_model: {permute_within: signed_contrast}
+  block:
+    levels: [0.2, 0.8]
+    null_model: {pseudo_sessions: ibl_blocks}
+    window: baseline
+
+# Movement controls: reaction time = movement - stimulus, permuted within strata.
+movement:
+  stimulus: stim_on
+  movement: first_movement
+  strata: signed_contrast
+
+# Behaviour time series the task uses, by the session's own names.
+behaviour:
+  wheel: wheel
+  traces: [motion_energy_left, motion_energy_right, motion_energy_body, pupil_left, pupil_right]
+
+# What the no-spikes baseline (null_trialstruct) may use, for decoding later (step 8).
+trialstruct: [contrastLeft, contrastRight, probabilityLeft, choice, feedbackType]
+
+# Trial filters offered: keep flagged trials, drop listed values, or keep chosen levels
+# of a column or derivation. Reasons name what excluded each trial.
+trial_filters:
+  bwm_include:
+    label: BWM trial inclusion
+    kind: flag
+    column: bwm_include
+    reason: not bwm_include
+  exclude_nogo:
+    label: Exclude no-go
+    kind: exclude_values
+    column: choice
+    values: [0]
+    reason: no-go
+  contrasts:
+    label: Contrasts
+    kind: select
+    derive: {name: absolute_contrast, columns: [contrastLeft, contrastRight]}
+    undefined_reason: contrast undefined
+    reason: contrast not selected
+    level_format: percent
+  blocks:
+    label: Blocks
+    kind: select
+    column: probabilityLeft
+    reason: block not selected
+    level_format: "p(left) {v:g}"
+  outcomes:
+    label: Outcomes
+    kind: select
+    column: feedbackType
+    reason: outcome not selected
+    level_names: {-1: error, 1: reward}

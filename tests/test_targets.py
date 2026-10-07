@@ -1,11 +1,10 @@
-import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from neurodecoder.data.session import (
+from unitwave.data.session import (
     BEHAVIOUR_FIELDS,
     TRIAL_FIELDS,
     UNIT_FIELDS,
@@ -13,11 +12,12 @@ from neurodecoder.data.session import (
     Session,
     TimeSeries,
 )
-from neurodecoder.preprocess.binning import BinnedSpikes, PreprocConfig
-from neurodecoder.qc.units import UnitQC
-from neurodecoder.targets.bins import movement_state_from_epochs, wheel_velocity
-from neurodecoder.targets.config import TargetConfig, TrialWindow, load_target_config
-from neurodecoder.targets.trials import block, choice, movement_onsets
+from unitwave.env import env
+from unitwave.preprocess.binning import BinnedSpikes, PreprocConfig
+from unitwave.qc.units import UnitQC
+from unitwave.targets.bins import movement_state_from_epochs, wheel_velocity
+from unitwave.targets.config import TargetConfig, TrialWindow, load_target_config
+from unitwave.targets.trials import block, choice, movement_onsets, stimulus_side
 
 PREPROC = PreprocConfig(bin_ms=20, qc=UnitQC(1.0, ("void", "root"), 0.1))
 FP = PREPROC.fingerprint()
@@ -25,6 +25,7 @@ CFG = TargetConfig(
     windows={
         "block": TrialWindow("stimOn_times", -0.4, -0.1),
         "choice": TrialWindow("firstMovement_times", -0.1, 0.0),
+        "stimulus_side": TrialWindow("stimOn_times", 0.0, 0.1),
     }
 )
 
@@ -144,6 +145,31 @@ def test_block_drops_the_unbiased_block_and_ends_before_the_stimulus():
     assert np.all(ends_s <= stim - 0.1 + 1e-9) and np.all(ends_s > stim - 0.1 - 0.02)
 
 
+def test_stimulus_side_drops_zero_contrast_and_counts_it():
+    t = stimulus_side(_session(), _binned(), CFG)
+    assert t.context_bins == 5 and t.name == "stimulus_side"
+    # Trial 1 is not bwm_include; trial 3's stimulus is 0% contrast, so it has no side
+    # to decode and is excluded, and counted.
+    assert t.table["trial"].tolist() == [0, 2]
+    assert t.table["label"].tolist() == [1, 1]  # stimulus on the left -> 1
+    assert t.excluded == {"0% contrast": 1}
+    # The window is the 100 ms after stimulus onset: it ends in the last bin finishing
+    # by stimOn + 0.1 s.
+    assert t.table["end_bin"].tolist() == [79, 479]
+    stim = _trials().loc[t.table["trial"], "stimOn_times"].to_numpy()
+    ends_s = (t.table["end_bin"].to_numpy() + 1) * 0.02
+    assert np.all(ends_s <= stim + 0.1 + 1e-9) and np.all(ends_s > stim + 0.1 - 0.02)
+    # Other targets exclude nothing beyond their definition.
+    assert choice(_session(), _binned(), CFG).excluded == {}
+
+
+def test_stimulus_side_refuses_a_trial_with_both_or_neither_side():
+    trials = _trials()
+    trials.loc[0, "contrastRight"] = 0.5  # both sides set
+    with pytest.raises(ValueError, match="one side"):
+        stimulus_side(_session(trials=trials), _binned(), CFG)
+
+
 def test_movement_onsets_are_event_times_of_included_trials():
     t = movement_onsets(_session(), _binned(), CFG)
     assert t.context_bins is None
@@ -187,7 +213,7 @@ def test_default_config_and_fingerprint():
     )
 
 
-DATA_ROOT = Path(os.environ.get("NEURODECODER_DATA_ROOT", "~/data/neurodecoder")).expanduser()
+DATA_ROOT = Path(env("DATA_ROOT", "~/data/neurodecoder")).expanduser()
 EPHYS = DATA_ROOT / "bwm_compressed/bwm_ephys/1.2.1"
 BEHAVIOUR = DATA_ROOT / "bwm_compressed/bwm_behavior/2.0.0"
 EID = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
@@ -195,8 +221,8 @@ EID = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
 
 @pytest.fixture(scope="module")
 def real():
-    from neurodecoder.data.backends.bwm_compressed import load_session_bwm
-    from neurodecoder.preprocess.binning import preprocess_session
+    from unitwave.data.backends.bwm_compressed import load_session_bwm
+    from unitwave.preprocess.binning import preprocess_session
 
     session = load_session_bwm(EID, EPHYS, BEHAVIOUR)
     return session, preprocess_session(session, PREPROC)
@@ -209,7 +235,7 @@ needs_bwm = pytest.mark.skipif(
 
 @needs_bwm
 def test_real_wheel_velocity_agrees_with_ibl_movement_epochs(real):
-    from neurodecoder.targets.bins import movement_state
+    from unitwave.targets.bins import movement_state
 
     session, binned = real
     v = wheel_velocity(session, binned, CFG).values
@@ -231,7 +257,13 @@ def test_real_trial_targets_match_the_release_counts(real):
     assert len(c.table) == included.sum()
     b = block(session, binned, CFG)
     assert len(b.table) == (included & (trials["probabilityLeft"] != 0.5).to_numpy()).sum()
-    for t in (c, b):
+    s = stimulus_side(session, binned, CFG)
+    contrast = trials["contrastLeft"].fillna(trials["contrastRight"]).to_numpy(float)
+    assert len(s.table) == (included & (contrast > 0)).sum()
+    assert s.excluded == {"0% contrast": int((included & (contrast == 0)).sum())}
+    left = trials["contrastLeft"].notna().to_numpy()
+    assert s.table["label"].tolist() == left[s.table["trial"]].astype(int).tolist()
+    for t in (c, b, s):
         start = t.table["end_bin"] - t.context_bins + 1
         assert (start >= binned.first_bin).all()
         assert (t.table["end_bin"] < binned.first_bin + binned.n_bins).all()

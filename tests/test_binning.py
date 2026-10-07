@@ -1,25 +1,25 @@
-import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from neurodecoder.data.session import (
+from unitwave.data.session import (
     BEHAVIOUR_FIELDS,
     TRIAL_FIELDS,
     UNIT_FIELDS,
     Capabilities,
     Session,
 )
-from neurodecoder.preprocess import binning
-from neurodecoder.preprocess.binning import (
+from unitwave.env import env
+from unitwave.preprocess import binning
+from unitwave.preprocess.binning import (
     PreprocConfig,
     bin_spikes,
     load_preproc_config,
     preprocess_session,
 )
-from neurodecoder.qc.units import UnitQC
+from unitwave.qc.units import UnitQC
 
 QC = UnitQC(min_label=1.0, exclude_regions=("void", "root"), min_firing_rate_hz=0.1)
 
@@ -126,7 +126,7 @@ def test_preprocess_applies_qc_before_binning():
     assert b.unit_ids == ("a",)
 
 
-DATA_ROOT = Path(os.environ.get("NEURODECODER_DATA_ROOT", "~/data/neurodecoder")).expanduser()
+DATA_ROOT = Path(env("DATA_ROOT", "~/data/neurodecoder")).expanduser()
 EID = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
 BWM = DATA_ROOT / "bwm_compressed/bwm_ephys/1.2.1"
 NWB = (
@@ -140,16 +140,15 @@ CFG = PreprocConfig(bin_ms=20, qc=QC)
 
 @pytest.fixture(scope="module")
 def nwb_binned():
-    from neurodecoder.data.backends.dandi_nwb import load_session_nwb
+    from unitwave.data.backends.dandi_nwb import load_session_nwb
 
     return preprocess_session(load_session_nwb(NWB), CFG)
 
 
 @pytest.mark.skipif(not NWB.exists(), reason="NWB file not available")
 def test_real_round_trip_counts_equal_spike_counts(nwb_binned):
-    from neurodecoder.data.backends.dandi_nwb import load_session_nwb
-
-    from neurodecoder.qc.units import apply_unit_qc
+    from unitwave.data.backends.dandi_nwb import load_session_nwb
+    from unitwave.qc.units import apply_unit_qc
 
     session = apply_unit_qc(load_session_nwb(NWB), QC)
     assert nwb_binned.counts.shape[0] == 390  # 397 before the task-period rate rule
@@ -162,7 +161,7 @@ def test_real_round_trip_counts_equal_spike_counts(nwb_binned):
     not (NWB.exists() and (ONE_CACHE / "danlab").exists()), reason="NWB and ONE data needed"
 )
 def test_real_one_and_nwb_bin_identically(nwb_binned):
-    from neurodecoder.data.backends.one_backend import load_session_one, make_one
+    from unitwave.data.backends.one_backend import load_session_one, make_one
 
     one = preprocess_session(load_session_one(EID, make_one(ONE_CACHE)), CFG)
     assert one.unit_ids == nwb_binned.unit_ids
@@ -172,7 +171,7 @@ def test_real_one_and_nwb_bin_identically(nwb_binned):
 
 @pytest.mark.skipif(not (NWB.exists() and BWM.exists()), reason="NWB and BWM data needed")
 def test_real_bwm_differs_from_nwb_only_by_edge_rounding(nwb_binned):
-    from neurodecoder.data.backends.bwm_compressed import load_session_bwm
+    from unitwave.data.backends.bwm_compressed import load_session_bwm
 
     bwm = preprocess_session(load_session_bwm(EID, BWM), CFG)
     assert bwm.unit_ids == nwb_binned.unit_ids

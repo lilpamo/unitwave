@@ -1,0 +1,16 @@
+# Unit QC from spike times only (unitwave/qc/spike_times.py), for sources without their
+# own labels: a Phy folder with no label files, and NWB files without quality columns
+# (step 5). Sources with labels keep their rule (configs/qc.yaml, configs/qc_phy.yaml)
+# and show this verdict beside it. Signed off by the user 2026-10-02 (docs/DECISIONS.md).
+# Never change a value to improve a result (R6).
+
+# Task-period firing rate, as configs/qc.yaml and configs/qc_phy.yaml.
+min_firing_rate_hz: 0.1
+# IBL's sliding refractory-period test (qc/refractory.py), as configs/qc_phy.yaml.
+refractory_contamination: 0.1
+refractory_alpha: 0.1
+# Presence ratio: the share of whole bins of presence_window_s across the task period
+# (first trial's start to last trial's end) with at least one spike. IBL's bin width;
+# Allen's default threshold (presence_ratio > 0.9 in the AllenSDK; here at least).
+presence_window_s: 10.0
+min_presence_ratio: 0.9

@@ -1,5 +1,4 @@
 import json
-import os
 import zipfile
 from pathlib import Path
 
@@ -7,7 +6,8 @@ import numpy as np
 import pytest
 from numcodecs import Blosc
 
-from neurodecoder.data.backends.bwm_compressed import _behaviour_from_shard, _read_behaviour_shard
+from unitwave.data.backends.bwm_compressed import _behaviour_from_shard, _read_behaviour_shard
+from unitwave.env import env
 
 EID = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
 LEFT = [
@@ -209,7 +209,7 @@ def test_skipped_sources_are_declared_missing(tmp_path):
     assert "skipped" in missing["motion_energy_left"]
 
 
-DATA_ROOT = Path(os.environ.get("NEURODECODER_DATA_ROOT", "~/data/neurodecoder")).expanduser()
+DATA_ROOT = Path(env("DATA_ROOT", "~/data/neurodecoder")).expanduser()
 BWM_EPHYS = DATA_ROOT / "bwm_compressed/bwm_ephys/1.2.1"
 BWM_BEHAVIOUR = DATA_ROOT / "bwm_compressed/bwm_behavior/2.0.0"
 NWB_PATH = (
@@ -225,8 +225,8 @@ needs_real = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def sessions():
-    from neurodecoder.data.backends.bwm_compressed import load_session_bwm
-    from neurodecoder.data.backends.dandi_nwb import load_session_nwb
+    from unitwave.data.backends.bwm_compressed import load_session_bwm
+    from unitwave.data.backends.dandi_nwb import load_session_nwb
 
     return load_session_bwm(EID, BWM_EPHYS, behaviour_root=BWM_BEHAVIOUR), load_session_nwb(
         NWB_PATH

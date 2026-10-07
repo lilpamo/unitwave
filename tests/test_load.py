@@ -1,14 +1,13 @@
 import dataclasses
-import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from neurodecoder.data import load as load_module
-from neurodecoder.data.backends import bwm_compressed, dandi_nwb
-from neurodecoder.data.load import (
+from unitwave.data import load as load_module
+from unitwave.data.backends import bwm_compressed, dandi_nwb
+from unitwave.data.load import (
     Backend,
     DataConfig,
     key_parts,
@@ -16,13 +15,14 @@ from neurodecoder.data.load import (
     load_session,
     nwb_source,
 )
-from neurodecoder.data.session import (
+from unitwave.data.session import (
     BEHAVIOUR_FIELDS,
     TRIAL_FIELDS,
     UNIT_FIELDS,
     Capabilities,
     Session,
 )
+from unitwave.env import env
 
 EID = "d23a44ef-1402-4ed7-97f5-47e9a7a504d9"
 NWB_NAME = f"sub-DY-016_ses-{EID}_desc-processed_behavior+ecephys.nwb"
@@ -58,6 +58,7 @@ def _tiny_session(eid: str) -> Session:
 
 
 def test_default_config_resolves_paths_under_the_data_root(monkeypatch):
+    monkeypatch.delenv("UNITWAVE_DATA_ROOT", raising=False)
     monkeypatch.delenv("NEURODECODER_DATA_ROOT", raising=False)
     cfg = load_data_config()
     assert cfg.data_root == Path("~/data/neurodecoder").expanduser()
@@ -69,7 +70,7 @@ def test_default_config_resolves_paths_under_the_data_root(monkeypatch):
 
 
 def test_env_var_overrides_the_data_root(monkeypatch, tmp_path):
-    monkeypatch.setenv("NEURODECODER_DATA_ROOT", str(tmp_path))
+    monkeypatch.setenv("UNITWAVE_DATA_ROOT", str(tmp_path))
     cfg = load_data_config()
     assert cfg.data_root == tmp_path
     assert cfg.cache_root == tmp_path / "cache"
@@ -142,7 +143,7 @@ def test_nwb_source_rejects_ambiguous_local_copies(tmp_path):
         nwb_source(EID, cfg)
 
 
-REAL_ROOT = Path(os.environ.get("NEURODECODER_DATA_ROOT", "~/data/neurodecoder")).expanduser()
+REAL_ROOT = Path(env("DATA_ROOT", "~/data/neurodecoder")).expanduser()
 HAS_BWM = (REAL_ROOT / "bwm_compressed/bwm_ephys/1.2.1").exists()
 HAS_NWB = (REAL_ROOT / "dandi/000409/sub-DY-016" / NWB_NAME).exists()
 
