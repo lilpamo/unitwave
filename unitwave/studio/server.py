@@ -134,6 +134,7 @@ from unitwave.studio.entry import (
     resolve_locations_file,
     resolve_nwb_file,
     resolve_phy_folder,
+    resolve_recording,
     resolve_sync_file,
 )
 from unitwave.studio.export import export_view
@@ -482,6 +483,13 @@ class Studio:
                 "kind": "phy",
                 "label": f"Phy folder · {s.folder}",
                 "report": REPORTS.get(self.session.eid),  # its clock (step 13a)
+            }
+        if s.kind == "recording":  # step 14a
+            report = REPORTS.get(self.session.eid) or {"probes": []}
+            return {
+                "kind": "recording",
+                "label": f"Recording · {Path(s.file).parent.name} · {len(report['probes'])} probes",
+                "report": report,
             }
         layout = load_layout(s.layout)
         return {
@@ -2110,7 +2118,14 @@ class App:
                 analysis_log=project.get("analysis_log", []),
             )
             return {"eid": session.eid, "url": "/session", "warnings": warnings}
-        if kind == "phy":
+        recording = None
+        if kind == "phy":  # a folder with a recording.yaml opens as that recording (step 14a)
+            recording = resolve_recording(self.phy_root, str(body.get("path", "")))
+        if recording is not None:
+            task = str(body.get("task") or DEFAULT_TASK)
+            source = Source(kind="recording", file=str(recording), task=task)
+            name = recording.parent.name
+        elif kind == "phy":
             folder, events = resolve_phy_folder(self.phy_root, str(body.get("path", "")))
             task = str(body.get("task") or DEFAULT_TASK)
             sync = {}
@@ -2363,6 +2378,7 @@ def build_app(argv: list[str]) -> tuple[App, str]:
     ap.add_argument("--sync-probe", help="with --phy: sync pulses on the probe's clock")
     ap.add_argument("--sync-events", help="with --phy: the same pulses on the events' clock")
     ap.add_argument("--locations", help="with --phy: channel_locations.json or a .csv")
+    ap.add_argument("--recording", help="a recording.yaml: several probes, events, behaviour")
     ap.add_argument("--nwb", help="an NWB file with sorted units and a trials table")
     ap.add_argument(
         "--layout",
@@ -2388,10 +2404,10 @@ def build_app(argv: list[str]) -> tuple[App, str]:
     if sum(bool(x) for x in (args.phy, args.eid, args.nwb)) > 1:
         ap.error("choose one data source: --eid, --phy or --nwb")
     data = load_data_config()
-    if not (args.project or args.phy or args.eid or args.nwb):
+    if not (args.project or args.phy or args.eid or args.nwb or args.recording):
         return App(data), "/"
     view, warnings = None, []
-    if args.project and not (args.phy or args.eid or args.nwb):
+    if args.project and not (args.phy or args.eid or args.nwb or args.recording):
         if not args.project.exists():
             ap.error(f"{args.project} does not exist; give a data source to start a new project")
         project, session, qc, warnings = open_project(args.project)
@@ -2399,7 +2415,13 @@ def build_app(argv: list[str]) -> tuple[App, str]:
         view, path = project["view"], args.project
         log = project.get("analysis_log", [])
     else:
-        if args.phy:
+        if args.recording:
+            source = Source(
+                kind="recording",
+                file=str(Path(args.recording).resolve()),
+                task=args.task or DEFAULT_TASK,
+            )
+        elif args.phy:
             sync = {
                 role: str(Path(path).resolve())
                 for role, path in (
@@ -2427,7 +2449,11 @@ def build_app(argv: list[str]) -> tuple[App, str]:
             source = Source(kind="ibl", eid=args.eid, backend=args.backend)
         if args.project and args.project.exists():
             ap.error(f"{args.project} exists; open it with --project alone, or choose a new name")
-        name = {"phy": lambda: Path(source.folder).name, "nwb": lambda: Path(source.file).stem}
+        name = {
+            "phy": lambda: Path(source.folder).name,
+            "nwb": lambda: Path(source.file).stem,
+            "recording": lambda: Path(source.file).parent.name,
+        }
         name = name.get(source.kind, lambda: source.eid[:8])()
         path = args.project or _new_project_path(data.data_root / "projects", name)
         log = []

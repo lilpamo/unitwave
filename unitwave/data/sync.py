@@ -18,6 +18,8 @@ recorded on both, so pairing its edges gives the map between the clocks.
   - reported: offset, drift (ppm), largest and RMS residual.
 - **Mapping (`ClockFit.to_probe`):** events' times to the probe's clock. Missing times
   stay missing; times more than `max_outside_s` outside the pulses are refused.
+  `ClockFit.to_events` is the inverse, for a recording whose probes' spikes all move
+  onto the shared events clock (step 14a).
 
 On d23a44ef this reproduces IBL's own probe00 alignment within 0.1 ms
 (tests/test_sync.py).
@@ -124,6 +126,17 @@ class ClockFit:
                 "where the clock fit isn't checked"
             )
         return self.offset_s + (1.0 + self.drift_ppm * 1e-6) * t
+
+    def to_events(self, times) -> tuple[np.ndarray, np.ndarray]:
+        """Probe-clock times on the events' clock (the inverse line), and (n,) which lie
+        within max_outside_s of the pulses: (mapped, inside). The caller decides what
+        to do with the rest (a recording drops and counts spikes beyond the pulses)."""
+        t = np.asarray(times, np.float64)
+        mapped = (t - self.offset_s) / (1.0 + self.drift_ppm * 1e-6)
+        inside = (mapped >= self.span[0] - self.max_outside_s) & (
+            mapped <= self.span[1] + self.max_outside_s
+        )
+        return mapped, inside
 
     def describe(self) -> str:
         return (

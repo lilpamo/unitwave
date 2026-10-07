@@ -346,7 +346,9 @@ Asked by the user: the layout should follow how a neuroscientist reads a session
    - the population raster large below, with events and behaviour;
    - it opens on the first kept trial.
    - **Needs** one new endpoint, a per-trial list for the strip. The page only draws it.
-2. **Own data, complete:**
+2. **Own data, complete: 14a built (2026-10-05)**, recordings (recording.yaml: several
+   probes on the events clock, rig behaviour; docs/DECISIONS.md, "Step 14a"). **14b
+   next:** region summaries over saved projects. As first written:
    - **Multi-probe sessions:** several Phy folders opened as one session, each probe
      with its own sync pulses and channel locations.
    - **Rig behaviour:** wheel, licks, pupil and pose as time-series files, moved onto the

@@ -60,6 +60,16 @@ function renderSourceReport(r) {
   $('sourceReport').hidden = !r;
   if (!r) return;
   const row = (what, text, cls = '') => `<li class="${cls}"><b>${esc(what)}</b> ${esc(text)}</li>`;
+  if (r.kind === 'recording') {  // a recording's probes and behaviour (step 14a)
+    const probes = r.probes.map((p) => row(p.name, `${p.units} units from ${p.folder} · ` +
+      (p.clock ? `onto the events clock: ${p.clock}` : 'no sync pulses: taken to be on the events clock already') +
+      (p.dropped_spikes ? ` · ${p.dropped_spikes} spikes beyond the pulses dropped` : '') +
+      (p.regions ? ` · regions from ${p.regions}` : ' · no regions')));
+    const behaviour = Object.entries(r.behaviour).map(([k, b]) => row(k, `${b.samples} samples from ${b.file}, recorded on the ${b.clock === 'events' ? 'events' : b.clock} clock`));
+    $('sourceReportBody').innerHTML = `<p class="note">Described by ${esc(r.file)}</p><ul>${probes.join('')}` +
+      (behaviour.length ? behaviour.join('') : row('Behaviour', `none in ${r.file}`, 'gone')) + '</ul>';
+    return;
+  }
   if (r.kind === 'phy') {  // a Phy folder's clock (step 13a)
     $('sourceReportBody').innerHTML = `<ul>${r.clock
       ? row('Clock', `events moved onto the probe's clock: ${r.clock}`)

@@ -139,7 +139,8 @@ def test_completion_lists_folders_under_the_root_and_marks_phy_ones(tmp_path):
     top = complete_phy_path(root, "")
     assert [c["path"] for c in top] == ["mouse1", "mouse2"]  # the symlink out is not offered
     deeper = complete_phy_path(root, "mouse1/")
-    assert deeper == [{"path": "mouse1/probe00", "phy": True, "events": True}]
+    # recording: whether it holds a recording.yaml (step 14a; tests/test_recording.py)
+    assert deeper == [{"path": "mouse1/probe00", "phy": True, "events": True, "recording": False}]
     assert complete_phy_path(root, "mouse2/")[0]["events"] is False
     with pytest.raises(ValueError, match="outside"):
         complete_phy_path(root, "../")

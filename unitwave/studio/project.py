@@ -37,6 +37,7 @@ from unitwave.analysis.trial_view import DEFAULT_CONFIG as TRIAL_VIEW_CONFIG
 from unitwave.analysis.trial_view import load_trial_view_config
 from unitwave.analysis.tuning import DEFAULT_CONFIG as SELECTIVITY_CONFIG
 from unitwave.data.backends.phy import load_session_phy
+from unitwave.data.backends.recording import load_recording, read_recording
 from unitwave.data.load import key_parts, load_session
 from unitwave.data.session import Session
 from unitwave.data.sync import fit_clock, load_sync_config, read_pulses
@@ -129,7 +130,12 @@ class Source:
     locations: str | None = None
 
     def __post_init__(self):
-        needs = {"ibl": ("eid", "backend"), "phy": ("folder", "events"), "nwb": ("file",)}
+        needs = {
+            "ibl": ("eid", "backend"),
+            "phy": ("folder", "events"),
+            "nwb": ("file",),
+            "recording": ("file",),  # a recording.yaml (step 14a)
+        }
         if self.kind not in needs:
             raise ValueError(f"unknown data source kind {self.kind!r}")
         if any(getattr(self, f) is None for f in needs[self.kind]):
@@ -173,6 +179,12 @@ def load_source(source: Source):
         }
         labelled = any((Path(source.folder) / name).exists() for name in PHY_LABEL_FILES)
         return session, load_phy_qc_config() if labelled else load_spike_qc_config()
+    if source.kind == "recording":
+        session, report = load_recording(source.file, load_task(source.task))
+        REPORTS[session.eid] = report
+        folders = [Path(p["folder"]) for p in read_recording(source.file)["probes"]]
+        labelled = all(any((f / n).exists() for n in PHY_LABEL_FILES) for f in folders)
+        return session, load_phy_qc_config() if labelled else load_spike_qc_config()
     if source.kind == "nwb":
         layout = load_layout(source.layout)
         intake = read_nwb(source.file, layout, task=source.task)
@@ -198,6 +210,8 @@ def file_hashes(source: Source) -> dict[str, str]:
     IBL."""
     if source.kind == "nwb":
         return {Path(source.file).name: _sha256(Path(source.file))}
+    if source.kind == "recording":
+        return _recording_hashes(Path(source.file))
     if source.kind != "phy":
         return {}
     folder = Path(source.folder)
@@ -217,6 +231,32 @@ def file_hashes(source: Source) -> dict[str, str]:
         for f in files:
             hashes[f"{role}/{f.name}"] = _sha256(f)
     return hashes
+
+
+def _recording_hashes(path: Path) -> dict[str, str]:
+    """name -> sha256 of a recording's file and every file it names, keyed by their path
+    in its folder: each probe's Phy files, the events, the pulses (IBL's with their
+    channels and polarities), the locations and the behaviour (with .values.npy)."""
+    rec, base = read_recording(path), path.resolve().parent
+    files = [path.resolve(), rec["events"]]
+    for p in rec["probes"]:
+        files += [p["folder"] / n for n in PHY_FILES if (p["folder"] / n).exists()]
+        files += [f for f in (p["sync"], p["locations"]) if f is not None]
+    files += [rec["events_sync"]] if rec["events_sync"] is not None else []
+    for b in rec["behaviour"].values():
+        f = b["file"]
+        files += (
+            [f, f.with_name(f.name.replace(".times.npy", ".values.npy"))]
+            if f.name.endswith(".times.npy")
+            else [f]
+        )
+    for f in list(files):
+        if f is not None and f.name.startswith("_spikeglx_sync.times"):
+            files += [
+                f.with_name(f.name.replace(".times", f".{part}"))
+                for part in ("channels", "polarities")
+            ]
+    return {str(f.relative_to(base)): _sha256(f) for f in dict.fromkeys(files)}
 
 
 def session_fingerprint(session: Session) -> str:

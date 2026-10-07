@@ -167,19 +167,14 @@ def _events(
     return trials
 
 
-def load_session_phy(
-    folder: str | Path,
-    events_csv: str | Path,
-    probe_name: str | None = None,
-    task: TaskDefinition | None = None,
-    clock: ClockFit | None = None,
-    locations: str | Path | None = None,
-) -> Session:
-    """Session with one unit per cluster in spike_clusters.npy, ids '<probe_name>_<cluster_id>'.
+def read_probe(
+    folder: str | Path, probe_name: str | None = None, locations: str | Path | None = None
+) -> tuple[dict, pd.DataFrame, dict]:
+    """One Phy folder's units, on its own clock: (spikes, units, missing).
 
-    probe_name defaults to the folder's name. task: the definition the events CSV is read
-    with; its columns are accepted besides IBL's (None: IBL's names only). clock: the
-    events' clock mapped onto the probe's (data.sync.fit_clock); None: already the same.
+    spikes: unit id ('<probe_name>_<cluster_id>') -> (n_spikes,) seconds, sorted; units:
+    one row per cluster (probe_name, cluster_id, phy_group, group_file, n_spikes, and
+    depths, acronym, x, y, z when known); missing: unit field -> why it isn't known.
     locations: histology-aligned channel locations (data.channel_locations, step 13b):
     each unit takes its peak channel's region and position.
     """
@@ -234,8 +229,30 @@ def load_session_phy(
         for column in ("acronym", "x", "y", "z"):
             units[column] = placed[column].to_numpy()
             missing.pop(f"units.{column}")
+    return spikes, units, missing
 
-    span = (float(times.min()), float(times.max()))
+
+def load_session_phy(
+    folder: str | Path,
+    events_csv: str | Path,
+    probe_name: str | None = None,
+    task: TaskDefinition | None = None,
+    clock: ClockFit | None = None,
+    locations: str | Path | None = None,
+) -> Session:
+    """Session with one unit per cluster in spike_clusters.npy, ids '<probe_name>_<cluster_id>'.
+
+    probe_name defaults to the folder's name. task: the definition the events CSV is read
+    with; its columns are accepted besides IBL's (None: IBL's names only). clock: the
+    events' clock mapped onto the probe's (data.sync.fit_clock); None: already the same.
+    locations: histology-aligned channel locations (data.channel_locations, step 13b):
+    each unit takes its peak channel's region and position.
+    """
+    folder = Path(folder)
+    spikes, units, missing = read_probe(folder, probe_name, locations)
+    first = min(float(t[0]) for t in spikes.values())
+    last = max(float(t[-1]) for t in spikes.values())
+    span = (first, last)
     trials = _events(events_csv, span, task, clock)
     missing |= {
         f"trials.{f}": "not in the events file, or empty there"

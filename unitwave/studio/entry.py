@@ -18,6 +18,7 @@ import json
 import os
 from pathlib import Path
 
+from unitwave.data.backends.recording import RECORDING_FILE
 from unitwave.studio.project import SUFFIXES, project_stem
 
 EVENTS_NAME = "events.csv"
@@ -134,10 +135,23 @@ def resolve_phy_folder(root: str | os.PathLike, user_path: str) -> tuple[Path, P
     return folder, _inside(root, events)
 
 
+def resolve_recording(root: str | os.PathLike, user_path: str) -> Path | None:
+    """The recording.yaml of a folder under the Phy root (step 14a), or None when the
+    folder holds none (it is then opened as one Phy folder)."""
+    root = Path(root).expanduser()
+    if not root.is_dir():
+        return None
+    candidate = Path(user_path).expanduser()
+    folder = _inside(root, candidate if candidate.is_absolute() else root / candidate)
+    path = folder / RECORDING_FILE
+    return _inside(root, path) if folder.is_dir() and path.is_file() else None
+
+
 def complete_phy_path(root: str | os.PathLike, prefix: str) -> list[dict]:
     """Folders under the root that continue `prefix` ("mouse1/" lists mouse1's folders).
 
-    Each: {path relative to the root, phy: has spike_times.npy, events: has events.csv}.
+    Each: {path relative to the root, phy: has spike_times.npy, events: has events.csv,
+    recording: has a recording.yaml}.
     Symlinks leading out of the root are never offered.
     """
     root = Path(root).expanduser()
@@ -163,6 +177,7 @@ def complete_phy_path(root: str | os.PathLike, prefix: str) -> list[dict]:
                 "path": rel,
                 "phy": (real / "spike_times.npy").exists(),
                 "events": (real / EVENTS_NAME).exists(),
+                "recording": (real / RECORDING_FILE).exists(),
             }
         )
         if len(out) >= _MAX_CHOICES:

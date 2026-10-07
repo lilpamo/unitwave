@@ -6,6 +6,61 @@ first.
 
 ---
 
+### 2026-10-05 — Step 14a: recordings: several probes, events and rig behaviour (`data/backends/recording.py`)
+
+**What (the plan's "own data, complete", its first part):** a lab's session with several
+Phy probes, its events and its rig's behaviour opens as one session.
+
+**Chosen by the user (2026-10-05, in chat):**
+- **A `recording.yaml` describes the recording,** in the session's folder:
+  - the probes, each a Phy folder with its own sync pulses and channel locations;
+  - the events and their clock's pulses;
+  - the behaviour files, each with its name in the task and its clock.
+
+  Paths are relative to the file and must stay in its folder. Anything malformed is
+  refused, saying where. The format is in the module's docstring.
+- **One clock, the events clock:** every probe's spikes, and behaviour recorded on a
+  probe's clock, move onto it, each by its own fit (the inverse of step 13a's line). A
+  single Phy folder without a recording file keeps step 13a's rule.
+- **Behaviour files:**
+  - **CSV:** a time column in seconds (`time`, `times`, `t_s` or `timestamps`) and
+    value columns. `column` picks one; otherwise each value column is a channel.
+  - **NumPy:** `<name>.times.npy` with `<name>.values.npy`.
+  - **Times must increase.**
+
+**Mine, flagged:**
+- **A probe without `sync`** is taken to be on the events clock already, and the report
+  says so.
+- **Spikes beyond the pulses:** spikes more than `max_outside_s` (10 s) beyond them aren't
+  on a checked clock. They are dropped and counted per probe in the report, so nothing
+  is silently kept or lost.
+- **Fields known for every probe:** a unit field (region, position, depth) counts as
+  known only if every probe knows it; otherwise it is missing, with the reason.
+- **QC rule:** the Phy group rule applies when every probe has label files; otherwise
+  the spike-time rule applies to all.
+
+**Where it applies:**
+- **Opening:** a folder under the Phy root that holds a `recording.yaml` opens as that
+  recording from the homepage's Phy tab, which marks such folders. The command line
+  has `--recording`.
+- **The project** hashes the file and everything it names: each probe's Phy files, the
+  events, the pulses, the locations and the behaviour.
+- **The page:** "What this file supports" lists each probe's clock fit and dropped
+  spikes, and each behaviour signal's file, clock and samples.
+
+**Proven:**
+- **Two hand-built probes on different clocks** (+1.5 s and 20 ppm; −0.7 s and −15
+  ppm): a unit planted 10 ms after each stimulus lands there on the events clock,
+  within a sample.
+- **Behaviour on a probe's clock** comes back onto the events clock exactly.
+- **Refusals:** spikes beyond the pulses are dropped and counted; probes without pulses
+  are taken as they are; seven malformed files are refused.
+- **Opening:** from the homepage (the rig's wheel gives the wheel-speed plot over 40
+  trials, and the project hashes every file) and from the command line.
+- **The browser:** the recording's report and its wheel plot.
+
+**Next, 14b:** region summaries over saved projects.
+
 ### 2026-10-05 — A Trials workspace (`studio/server.trials_json`, `analysis/conditions.TrialSelection.failed`)
 
 **Asked by the user:** where to see the whole single-trial raster. It sat half-width

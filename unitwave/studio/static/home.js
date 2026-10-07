@@ -221,8 +221,8 @@ const openSession = (eid) => openData({ kind: 'ibl', eid, trials: trialFilter() 
 // ---------- other ways in: Phy folders, recent projects, session sets ----------
 async function completePhy() {
   const d = await (await fetch('/api/phy/complete?' + new URLSearchParams({ prefix: $('phyPath').value }))).json();
-  $('phyRoot').textContent = `Folders under ${d.root}. Each opens with the events.csv beside its params.py.`;
-  $('phyChoices').innerHTML = d.choices.map((c) => `<option value="${esc(c.path)}${c.phy ? '' : '/'}">${c.phy ? (c.events ? 'Phy folder' : 'Phy folder, no events.csv') : 'folder'}</option>`).join('');
+  $('phyRoot').textContent = `Folders under ${d.root}. A Phy folder opens with the events.csv beside its params.py; a folder with a recording.yaml opens as that recording (several probes, events, behaviour).`;
+  $('phyChoices').innerHTML = d.choices.map((c) => `<option value="${esc(c.path)}${c.phy || c.recording ? '' : '/'}">${c.recording ? 'recording (recording.yaml)' : c.phy ? (c.events ? 'Phy folder' : 'Phy folder, no events.csv') : 'folder'}</option>`).join('');
 }
 async function completeNwb() {
   const d = await (await fetch('/api/nwb/complete?' + new URLSearchParams({ prefix: $('nwbPath').value }))).json();
